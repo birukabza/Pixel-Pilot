@@ -1,0 +1,44 @@
+<svg width="800" height="300" viewBox="0 0 800 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="brandGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#007acc" />
+      <stop offset="100%" stop-color="#4EC9B0" />
+    </linearGradient>
+    <style>
+      .brand-text { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-weight: 700; }
+      .pixel-text { fill: #FFFFFF; font-size: 72px; letter-spacing: -2px; }
+      .pilot-text { fill: url(#brandGradient); font-size: 72px; letter-spacing: -2px; }
+      .slogan { fill: #858585; font-size: 18px; letter-spacing: 4px; font-weight: 400; text-transform: uppercase; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="300" fill="#1e1e1e" rx="16"/>
+
+  <!-- Logo Mark -->
+  <g transform="translate(60, 75) scale(0.6)">
+    <!-- The "P" Mark -->
+    <path d="M 0 0 H 160 C 200 0 232 32 232 72 V 100 C 232 140 200 172 160 172 H 60 V 250 H 0 V 0 Z" fill="url(#brandGradient)" />
+    <!-- The Pixel Aperture -->
+    <rect x="60" y="60" width="100" height="52" rx="4" fill="#1e1e1e" />
+    <!-- The Navigation Spark -->
+    <path d="M 180 -20 L 250 -20 L 250 50 Z" fill="#FFFFFF" />
+  </g>
+
+  <!-- Text -->
+  <text x="240" y="145" class="brand-text">
+    <tspan class="pixel-text">PIXEL</tspan><tspan class="pilot-text">PILOT</tspan>
+  </text>
+  
+  <!-- Slogan -->
+  <text x="245" y="185" class="brand-text slogan">Pilot Your Pixels</text>
+
+  <!-- Decorative Grid Elements (The "Story" of the grid) -->
+  <g opacity="0.1">
+    <rect x="700" y="50" width="20" height="20" fill="white" />
+    <rect x="730" y="50" width="20" height="20" fill="white" />
+    <rect x="700" y="80" width="20" height="20" fill="white" />
+    <rect x="730" y="80" width="20" height="20" fill="url(#brandGradient)" opacity="0.8" />
+  </g>
+</svg>
+

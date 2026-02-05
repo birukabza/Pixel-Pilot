@@ -1,11 +1,13 @@
 from PySide6.QtWidgets import QMainWindow, QApplication
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QGuiApplication, QCursor
 from .chat_widget import ChatWidget
+from config import Config
 
 class MainWindow(QMainWindow):
-    FULL_SIZE = (420, 480)
-    COMPACT_SIZE = (420, 240)
-    MINI_SIZE = (150, 60)
+    FULL_SIZE = (440, 480)
+    COMPACT_SIZE = (440, 240)
+    MINI_SIZE = (160, 60)
     
     def __init__(self):
         super().__init__()
@@ -17,6 +19,8 @@ class MainWindow(QMainWindow):
         self.minimized = False
         self.last_size = self.FULL_SIZE
         self.old_pos = None
+
+        self.click_through_enabled = False
         
         self.chat_widget = ChatWidget()
         self.setCentralWidget(self.chat_widget)
@@ -29,9 +33,28 @@ class MainWindow(QMainWindow):
         
         self.center_at_top()
 
+    def set_click_through_enabled(self, enable: bool):
+        was_visible = self.isVisible()
+
+        flags = self.windowFlags()
+        if enable:
+            flags |= Qt.WindowTransparentForInput
+            self.setWindowOpacity(Config.GUI_TRANSPARENCY_LEVEL)
+        else:
+            flags &= ~Qt.WindowTransparentForInput
+            self.setWindowOpacity(1.0)
+
+        self.setWindowFlags(flags)
+        self.click_through_enabled = bool(enable)
+        if was_visible:
+            self.show()
+
     def center_at_top(self):
-        screen = QApplication.primaryScreen().geometry()
-        self.move((screen.width() - self.width()) // 2, 30)
+        screen = QGuiApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+        geo = screen.availableGeometry() if screen else QApplication.primaryScreen().availableGeometry()
+        x = geo.x() + (geo.width() - self.width()) // 2
+        y = geo.y() + 30
+        self.move(x, y)
 
     def toggle_minimize(self):
         if not self.minimized:
