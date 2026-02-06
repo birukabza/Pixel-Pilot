@@ -1,16 +1,13 @@
 import io
-import os
 from typing import Any, Dict, List, Optional
-from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel, Field
 from config import Config
 
-load_dotenv()
-api_key = os.getenv("GEMINI_API_KEY")
-model = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
+api_key = Config.GEMINI_API_KEY
+model = Config.GEMINI_MODEL
 if not api_key:
     raise ValueError("Missing API Key! Set GEMINI_API_KEY in your .env or environment.")
 
