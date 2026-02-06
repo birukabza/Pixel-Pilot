@@ -764,15 +764,20 @@ class AgentOrchestrator:
         task_complete = action.get("task_complete", False)
         action_sequence = action.get("action_sequence")
         success = False
+        deferred_execution = False
 
-        if action_sequence and (Config.TURBO_MODE or action.get("action_type") == "sequence"):
-            print(f"\n🚀 EXECUTING SEQUENCE: {len(action_sequence)} actions")
+        if not action_sequence and task_complete and action.get("action_type") == "reply":
+            print("   [INFO] Deferring reply execution until verification completes...")
+            deferred_execution = True
+            success = True
+        elif action_sequence and (Config.TURBO_MODE or action.get("action_type") == "sequence"):
+            print(f"\n EXECUTING SEQUENCE: {len(action_sequence)} actions")
             success = True
             for i, sub_action in enumerate(action_sequence):
                 print(f"\n--- Sequence Step {i + 1}/{len(action_sequence)} ---")
                 step_success = self.execute_action(sub_action, elements)
                 if not step_success:
-                    print(f"⚠️ Sequence failed at step {i + 1}")
+                    print(f" Sequence failed at step {i + 1}")
                     success = False
                     break
                 self.task_history.append(sub_action)
@@ -782,7 +787,8 @@ class AgentOrchestrator:
                 self.task_history.append(action)
 
         if success:
-            print("Action completed")            
+            if not deferred_execution:
+                print("Action completed")
             uac_suspect = False
             
             def check_uac(act):
@@ -885,6 +891,16 @@ class AgentOrchestrator:
 
                 if action["task_complete"]:
                     print(f"\n TASK COMPLETED: {user_command}")
+
+            if deferred_execution:
+                if action.get("task_complete", False):
+                    print("   [INFO] Verification passed. Executing deferred reply.")
+                    real_success = self.execute_action(action, elements)
+                    if real_success:
+                        self.task_history.append(action)
+                else:
+                    print("   [INFO] Verification failed. Suppressing reply.")
+                    self.task_history.append(action)
 
         else:
             print("Action failed or skipped")

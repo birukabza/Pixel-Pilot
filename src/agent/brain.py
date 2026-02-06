@@ -371,7 +371,14 @@ USER COMMAND: "{user_command}"
 
 YOUR GOAL:
 Try to fulfill the user's request using ONLY the available blind tools.
-If you simply cannot do it without seeing the UI (e.g., "Click the blue button", "Read the error message"), you MUST set `needs_vision: true`.
+However, you must be extremely CAUTIOUS. "Blind Mode" is efficient but risky.
+
+CRITICAL "FEAR OF FAILURE" PROTOCOL:
+1. **Safety First**: If you are not 100% sure that the app is open, focused, and ready for input, REQUEST VISION (`needs_vision: true`). Do not assume state.
+2. **Verify Completion**: If you are about to complete a task (like sending a message or saving a file), and you haven't recently seen the screen to confirm it worked, REQUEST VISION to verify.
+3. **Future Thinking**: Before performing a blind action, ask: "Will I need to see the result of this immediately?" If yes, switch to vision *now*.
+4. **No Guessing**: If the user asks to "click the login button", do NOT try to tab-navigate blindly unless you are extremely confident. Just request vision.
+5. **Context Awareness**: If the previous step failed or had low confidence, do NOT continue blindly. Switch to vision.
 
 AVAILABLE BLIND ACTIONS:
 - type_text: Type text. Params: {{"text": "..."}} (Assumes correct field is focused!)
@@ -388,6 +395,7 @@ UNAVAILABLE ACTIONS (Requires Vision):
 - magnify
 
 RESPONSE RULES:
+- Default to Vision: If in doubt, set `needs_vision: true`.
 - If the task is "Play music", use call_skill("media", "play", ...).
 - If the task is "Open Notepad", use open_app("Notepad").
 - If the task is "Click the Submit button", set `needs_vision: true`.
@@ -397,8 +405,8 @@ RESPONSE FORMAT:
 {{
     "action_type": "...",
     "params": {{ ... }},
-    "reasoning": "...",
-    "needs_vision": false,  <-- SET TO TRUE IF YOU NEED TO SEE
+    "reasoning": "Explain your risk assessment here. Why is blind safe? Or why is vision needed?",
+    "needs_vision": false,  <-- SET TO TRUE IF YOU NEED TO SEE, VERIFY, OR CHECK FOR ERRORS
     "task_complete": false,
     "skip_verification": false
 }}
