@@ -205,7 +205,7 @@ def create_launcher_task(script_path: Path, python_exe: str | None = None, log_p
         print(f"[!] Python executable not found: {python_exe}. Falling back to current Python.")
         python_exe = os.path.abspath(sys.executable)
 
-    python_exe = _pythonw_for(python_exe)
+    # python_exe = _pythonw_for(python_exe) # We use python.exe with hidden window so we can capture logs
     work_dir = str(script_path.parent)
 
     log_path_str = None
@@ -214,25 +214,36 @@ def create_launcher_task(script_path: Path, python_exe: str | None = None, log_p
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_path_str = str(log_path)
 
-    launcher_cmd = REPO_ROOT / "logs" / "launch_pixelpilot.cmd"
-    launcher_cmd.parent.mkdir(parents=True, exist_ok=True)
+    launcher_vbs = REPO_ROOT / "logs" / "launch_pixelpilot.vbs"
+    launcher_vbs.parent.mkdir(parents=True, exist_ok=True)
+
+    # Clean up legacy launch script if it exists
+    try:
+        (REPO_ROOT / "logs" / "launch_pixelpilot.cmd").unlink()
+    except Exception:
+        pass
+
+    py_esc = python_exe.replace('"', '""')
+    script_esc = str(script_path).replace('"', '""')
 
     if log_path_str:
-        cmd_content = (
-            f"@echo off\r\n"
-            f"cd /d \"{work_dir}\"\r\n"
-            f"\"{python_exe}\" \"{script_path}\" >> \"{log_path_str}\" 2>&1\r\n"
-        )
+        log_esc = log_path_str.replace('"', '""')
+        # Wrap the whole command in double quotes for cmd /c rule
+        run_cmd = f'cmd /c "" ""{py_esc}"" ""{script_esc}"" >> ""{log_esc}"" 2>&1 ""'
     else:
-        cmd_content = (
-            f"@echo off\r\n"
-            f"cd /d \"{work_dir}\"\r\n"
-            f"\"{python_exe}\" \"{script_path}\"\r\n"
-        )
+        run_cmd = f'""{py_esc}"" ""{script_esc}""'
 
-    launcher_cmd.write_text(cmd_content, encoding="utf-8")
+    work_dir_esc = work_dir.replace('"', '""')
 
-    tr = f'cmd.exe /c "\"{launcher_cmd}\""'
+    vbs_content = (
+        f'Set WshShell = CreateObject("WScript.Shell")\r\n'
+        f'WshShell.CurrentDirectory = "{work_dir_esc}"\r\n'
+        f'WshShell.Run "{run_cmd}", 0, False\r\n'
+    )
+
+    launcher_vbs.write_text(vbs_content, encoding="utf-8")
+
+    tr = f'wscript.exe "{launcher_vbs}"'
 
     cmd = [
         "schtasks",
