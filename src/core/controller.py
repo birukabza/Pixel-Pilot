@@ -37,7 +37,6 @@ class MainController(QObject):
         self.desktop_manager = None
         self.sidecar = None
 
-        # Connect GUI Adapter signals to Main Window actions (blocking support)
         self.gui_adapter.confirmation_requested.connect(self.handle_confirmation)
         self.gui_adapter.input_requested.connect(self.handle_input)
         self.gui_adapter.screenshot_prep_requested.connect(self.handle_screenshot_prep)
@@ -100,6 +99,7 @@ class MainController(QObject):
                     self.agent.keyboard.set_desktop_manager(self.desktop_manager)
                 
             logger.info("Agent Desktop and sidecar preview initialized")
+            self.update_sidecar_visibility()
         except Exception as e:
             logger.exception(f"Failed to initialize Agent Desktop: {e}")
             self.desktop_manager = None
@@ -146,9 +146,10 @@ class MainController(QObject):
 
         self.gui_adapter.add_activity_message(f"Executing: {text}")
         
-        if self.worker and self.worker.isRunning():
-            self.gui_adapter.add_error_message("Agent is busy.")
-            return
+        if self.agent.active_workspace == "user":
+            self.main_window.set_click_through_enabled(True)
+        
+        self.update_sidecar_visibility()
 
         self.worker = AgentWorker(self.agent, text)
         self.worker.finished.connect(self.on_task_finished)
@@ -184,6 +185,9 @@ class MainController(QObject):
             self.gui_adapter.add_activity_message("Done")
         else:
             self.gui_adapter.add_error_message("Task failed or incomplete")
+        
+        self.main_window.set_click_through_enabled(False)
+        self.update_sidecar_visibility()
 
     def toggle_click_through(self):
         """Toggle whether the overlay is interactive (receives input) or click-through."""
@@ -231,3 +235,19 @@ class MainController(QObject):
             Config.LAZY_VISION = True
             self.agent.robotics_eye = None
             self.gui_adapter.add_activity_message("Settings updated")
+
+    def update_sidecar_visibility(self):
+        """Show or hide the sidecar based on the current workspace context."""
+        if not self.sidecar:
+            return
+            
+        should_show = False
+        if self.agent:
+            if self.agent.active_workspace == "agent":
+                should_show = True
+            
+        if should_show:
+            self.sidecar.show()
+            self.sidecar.reattach()
+        else:
+            self.sidecar.hide()

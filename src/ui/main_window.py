@@ -111,6 +111,12 @@ class MainWindow(QMainWindow):
         if self.sidecar:
             self.sidecar.reattach()
 
+    def resizeEvent(self, event):
+        """Reposition sidecar when main window is resized."""
+        super().resizeEvent(event)
+        if self.sidecar:
+            self.sidecar.reattach()
+
     def showEvent(self, event):
         """Show sidecar when main window is shown."""
         super().showEvent(event)

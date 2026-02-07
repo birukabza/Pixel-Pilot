@@ -259,7 +259,7 @@ class AgentOrchestrator:
         Capture and analyze the current screen.
         Implements Lazy Vision: OCR first, fallback to Robotics if ambiguous.
         """
-        if self.chat_window:
+        if self.chat_window and self.active_workspace == "user":
             self.chat_window.prepare_for_screenshot()
 
         self._check_stop()
@@ -377,7 +377,7 @@ class AgentOrchestrator:
 
                 time.sleep(0.5)
 
-        if self.chat_window:
+        if self.chat_window and self.active_workspace == "user":
             self.chat_window.restore_after_screenshot()
 
         if not capture_successful or not os.path.exists(Config.SCREENSHOT_PATH):
@@ -936,7 +936,7 @@ class AgentOrchestrator:
         self.log(f"NEW TASK: {user_command}")
         self.log(f"{'=' * 60}")
 
-        if self.chat_window:
+        if self.chat_window and self.active_workspace == "user":
             self.chat_window.set_click_through(True)
 
         if self.loop_detector:
@@ -1183,7 +1183,7 @@ class AgentOrchestrator:
             return False
 
         finally:
-            if self.chat_window:
+            if self.chat_window and self.active_workspace == "user":
                 self.chat_window.set_click_through(False)
 
     def _check_and_trigger_uac(self):

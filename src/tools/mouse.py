@@ -55,7 +55,8 @@ def _get_screen_size():
 
 def move_to(x: int, y: int, desktop_manager=None):
     if desktop_manager:
-        return desktop_manager.run_on_desktop(move_to, x, y)
+        desktop_manager.set_cursor_pos(x, y)
+        return
         
     width, height = _get_screen_size()
     norm_x = int((x * 65536) / width) + 1
@@ -71,7 +72,22 @@ def move_to(x: int, y: int, desktop_manager=None):
 
 def click(desktop_manager=None):
     if desktop_manager:
-        return desktop_manager.run_on_desktop(click)
+        x, y = desktop_manager.get_cursor_pos()
+        hwnd = desktop_manager.get_window_at_point(x, y)
+        if hwnd:
+            desktop_manager.set_foreground_window(hwnd)
+            import ctypes
+            from ctypes import wintypes
+            user32 = ctypes.windll.user32
+            
+            point = wintypes.POINT(x, y)
+            user32.ScreenToClient(hwnd, ctypes.byref(point))
+            lparam = (point.y << 16) | (point.x & 0xFFFF)
+            
+            user32.PostMessageW(hwnd, 0x0201, 0x0001, lparam) 
+            time.sleep(0.05)
+            user32.PostMessageW(hwnd, 0x0202, 0, lparam) 
+        return
         
     extra = ctypes.c_ulong(0)
     ii_ = Input_I()

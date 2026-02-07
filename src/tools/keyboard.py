@@ -63,12 +63,43 @@ class KeyboardController:
         **{f"f{i}": f"f{i}" for i in range(1, 13)},
     }
 
+    VK_MAPPING = {
+        "enter": 0x0D,
+        "return": 0x0D,
+        "tab": 0x09,
+        "space": 0x20,
+        "backspace": 0x08,
+        "delete": 0x2E,
+        "esc": 0x1B,
+        "escape": 0x1B,
+        "up": 0x26,
+        "down": 0x28,
+        "left": 0x25,
+        "right": 0x27,
+        "win": 0x5B,
+        "ctrl": 0x11,
+        "alt": 0x12,
+        "shift": 0x10,
+    }
+
     def __init__(self):
         self.last_action_time = time.time()
 
     def type_text(self, text: str, interval: float = 0.05, desktop_manager=None) -> bool:
         if desktop_manager:
-            return desktop_manager.run_on_desktop(self.type_text, text, interval)
+            hwnd = desktop_manager.get_focused_window()
+            if not hwnd:
+                x, y = desktop_manager.get_cursor_pos()
+                hwnd = desktop_manager.get_window_at_point(x, y)
+            if hwnd:
+                import ctypes
+                user32 = ctypes.windll.user32
+                for char in text:
+                    user32.PostMessageW(hwnd, 0x0102, ord(char), 0)
+                    if interval > 0:
+                        time.sleep(interval)
+                return True
+            return False
         try:
             pyautogui.write(text, interval=interval)
             self.last_action_time = time.time()
@@ -78,7 +109,22 @@ class KeyboardController:
 
     def press_key(self, key: str, presses: int = 1, desktop_manager=None) -> bool:
         if desktop_manager:
-            return desktop_manager.run_on_desktop(self.press_key, key, presses)
+            hwnd = desktop_manager.get_focused_window()
+            if not hwnd:
+                x, y = desktop_manager.get_cursor_pos()
+                hwnd = desktop_manager.get_window_at_point(x, y)
+            if hwnd:
+                import ctypes
+                user32 = ctypes.windll.user32
+                key_lower = key.lower()
+                vk = self.VK_MAPPING.get(key_lower)
+                if vk:
+                    for _ in range(presses):
+                        user32.PostMessageW(hwnd, 0x0100, vk, 0)
+                        time.sleep(0.05)
+                        user32.PostMessageW(hwnd, 0x0101, vk, 0)
+                    return True
+            return False
         try:
             key_lower = key.lower()
             actual_key = self.KEY_MAPPING.get(key_lower, key_lower)
@@ -90,7 +136,23 @@ class KeyboardController:
 
     def key_combo(self, *keys: str, desktop_manager=None) -> bool:
         if desktop_manager:
-            return desktop_manager.run_on_desktop(self.key_combo, *keys)
+            hwnd = desktop_manager.get_focused_window()
+            if hwnd:
+                import ctypes
+                user32 = ctypes.windll.user32
+                vks = []
+                for key in keys:
+                    vk = self.VK_MAPPING.get(key.lower())
+                    if vk:
+                        vks.append(vk)
+                        user32.PostMessageW(hwnd, 0x0100, vk, 0)
+                        time.sleep(0.05)
+                
+                for vk in reversed(vks):
+                    user32.PostMessageW(hwnd, 0x0101, vk, 0)
+                    time.sleep(0.05)
+                return True
+            return False
         try:
             actual_keys = [self.KEY_MAPPING.get(key.lower(), key.lower()) for key in keys]
             pyautogui.hotkey(*actual_keys)

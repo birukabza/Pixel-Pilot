@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from ctypes import wintypes
 from typing import Optional
 from PIL import Image
+from PIL import ImageDraw
 
 logger = logging.getLogger("pixelpilot.desktop")
 
@@ -67,6 +68,7 @@ class AgentDesktopManager:
         self._original_desktop: Optional[int] = None
         self._lock = threading.Lock()
         self._created = False
+        self._cursor_pos = (0, 0)
 
     @property
     def is_created(self) -> bool:
@@ -130,7 +132,6 @@ class AgentDesktopManager:
         if not self.is_created:
             return None
         
-        # If we are already running on the target desktop, just execute
         current_desktop = self._get_current_thread_desktop()
         if current_desktop == self._desktop_handle:
             return func(*args, **kwargs)
@@ -152,6 +153,12 @@ class AgentDesktopManager:
     def capture_desktop(self) -> Optional[Image.Image]:
         try:
             return self.run_on_desktop(self._capture_current_desktop)
+        except Exception:
+            return None
+
+    def capture_desktop_raw(self) -> Optional[tuple[bytes, int, int]]:
+        try:
+            return self.run_on_desktop(self._capture_current_desktop_raw)
         except Exception:
             return None
 
@@ -189,10 +196,15 @@ class AgentDesktopManager:
                         buffer = ctypes.create_string_buffer(buffer_size)
                         if not gdi32.GetDIBits(hdc_mem, hbitmap, 0, height, buffer, ctypes.byref(bmi), DIB_RGB_COLORS):
                             return None
-                        img = Image.frombytes("RGBA", (width, height), buffer.raw)
-                        r, g, b, a = img.split()
-                        img = Image.merge("RGBA", (b, g, r, a))
-                        return img.convert("RGB")
+                        img = Image.frombytes("RGBA", (width, height), buffer.raw, "raw", "BGRA")
+                        
+                        draw = ImageDraw.Draw(img)
+                        cx, cy = self._cursor_pos
+                        
+                        draw.polygon([(cx+1, cy+1), (cx + 11, cy + 11), (cx+1, cy + 16)], fill="black")
+                        draw.polygon([(cx, cy), (cx + 10, cy + 10), (cx, cy + 15)], fill="white", outline="black")
+                        
+                        return img
                     finally:
                         gdi32.DeleteObject(hbitmap)
                 finally:
@@ -201,6 +213,52 @@ class AgentDesktopManager:
                 user32.ReleaseDC(h_desktop_win, hdc_screen)
         except Exception:
             return self._create_placeholder_image(1920, 1080)
+
+    def _capture_current_desktop_raw(self) -> Optional[tuple[bytes, int, int]]:
+        """Direct BGRA capture without PIL conversion."""
+        try:
+            width = user32.GetSystemMetrics(0)
+            height = user32.GetSystemMetrics(1)
+            h_desktop_win = user32.GetDesktopWindow()
+            hdc_screen = user32.GetDC(h_desktop_win)
+            if not hdc_screen:
+                return None
+            try:
+                hdc_mem = gdi32.CreateCompatibleDC(hdc_screen)
+                if not hdc_mem:
+                    return None
+                try:
+                    hbitmap = gdi32.CreateCompatibleBitmap(hdc_screen, width, height)
+                    if not hbitmap:
+                        return None
+                    try:
+                        old_bitmap = gdi32.SelectObject(hdc_mem, hbitmap)
+                        success = self._composite_windows_capture(hdc_mem, width, height)
+                        if not success:
+                            success = user32.PrintWindow(h_desktop_win, hdc_mem, PW_RENDERFULLCONTENT)
+                        if not success:
+                            return None
+                            
+                        bmi = BITMAPINFO()
+                        bmi.bmiHeader.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+                        bmi.bmiHeader.biWidth = width
+                        bmi.bmiHeader.biHeight = -height
+                        bmi.bmiHeader.biPlanes = 1
+                        bmi.bmiHeader.biBitCount = 32
+                        bmi.bmiHeader.biCompression = BI_RGB
+                        buffer_size = width * height * 4
+                        buffer = ctypes.create_string_buffer(buffer_size)
+                        if gdi32.GetDIBits(hdc_mem, hbitmap, 0, height, buffer, ctypes.byref(bmi), DIB_RGB_COLORS):
+                            return (buffer.raw, width, height)
+                        return None
+                    finally:
+                        gdi32.DeleteObject(hbitmap)
+                finally:
+                    gdi32.DeleteDC(hdc_mem)
+            finally:
+                user32.ReleaseDC(h_desktop_win, hdc_screen)
+        except Exception:
+            return None
 
     def _composite_windows_capture(self, hdc_dest: int, width: int, height: int) -> bool:
         windows_to_draw = []
@@ -308,11 +366,25 @@ class AgentDesktopManager:
         return self.run_on_desktop(user32.GetForegroundWindow)
 
     def get_window_at_point(self, x: int, y: int) -> Optional[int]:
-        """Find the window at a specific coordinate on the managed desktop."""
         def _get_win():
             point = wintypes.POINT(x, y)
             return user32.WindowFromPoint(point)
         return self.run_on_desktop(_get_win)
+
+    def get_focused_window(self) -> Optional[int]:
+        return self.run_on_desktop(user32.GetForegroundWindow)
+
+    def set_foreground_window(self, hwnd: int) -> bool:
+        def _set_fg():
+            user32.ShowWindow(hwnd, 5) # SW_SHOW
+            return user32.SetForegroundWindow(hwnd)
+        return self.run_on_desktop(_set_fg)
+
+    def set_cursor_pos(self, x: int, y: int):
+        self._cursor_pos = (x, y)
+
+    def get_cursor_pos(self) -> tuple[int, int]:
+        return self._cursor_pos
 
     def launch_process(self, command: str, working_dir: Optional[str] = None) -> bool:
         if not self.is_created:
