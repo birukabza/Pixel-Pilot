@@ -9,6 +9,7 @@ class GuiAdapter(QObject):
     activity_message_received = Signal(str)
     final_answer_received = Signal(str)
     guidance_next_requested = Signal(str, object)
+    guidance_input_requested = Signal(object) 
     
 
     confirmation_requested = Signal(str, str, object) 
@@ -41,6 +42,10 @@ class GuiAdapter(QObject):
 
     def request_guidance_next(self, label: str, payload: dict):
         self.guidance_next_requested.emit(label, payload)
+
+    def request_guidance_input(self, payload: dict):
+        """Request user input for conversational guidance mode."""
+        self.guidance_input_requested.emit(payload)
 
     def ask_confirmation(self, title, text):
         event = threading.Event()

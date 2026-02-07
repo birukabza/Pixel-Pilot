@@ -41,6 +41,7 @@ class MainController(QObject):
         self.gui_adapter.screenshot_restore_requested.connect(self.handle_screenshot_restore)
         self.gui_adapter.click_through_requested.connect(self.handle_click_through)
         self.gui_adapter.guidance_next_requested.connect(self.handle_guidance_next)
+        self.gui_adapter.guidance_input_requested.connect(self.handle_guidance_input)
 
     def init_agent(self):
         # Initialize Agent
@@ -104,6 +105,15 @@ class MainController(QObject):
             self.main_window.chat_widget.show_guidance_button(label, payload)
         except Exception:
             payload["result"] = False
+            payload["event"].set()
+
+    @Slot(object)
+    def handle_guidance_input(self, payload):
+        """Handle conversational guidance input request."""
+        try:
+            self.main_window.chat_widget.show_guidance_input(payload)
+        except Exception:
+            payload["cancelled"] = True
             payload["event"].set()
 
     def handle_user_command(self, text):

@@ -54,6 +54,8 @@ class ChatWidget(QWidget):
         self._stream_pos: int = 0
         self._guidance_payload: dict | None = None
         self._guidance_active: bool = False
+        self._guidance_input_active: bool = False  # New: for conversational guidance
+        self._guidance_input_payload: dict | None = None
         self.set_view_mode("full")
         self.update_mode_tooltip()
         self.update_vision_tooltip()
@@ -220,9 +222,9 @@ class ChatWidget(QWidget):
         self.mic_btn.setFixedSize(34, 34)
         self.mic_btn.setToolTip("Start listening")
         
-        self.guidance_btn = QPushButton("Next")
+        self.guidance_btn = QPushButton("Next Step")
         self.guidance_btn.setObjectName("guidanceBtn")
-        self.guidance_btn.setFixedHeight(28)
+        self.guidance_btn.setFixedSize(80, 34)  # Wider and taller for visibility
         self.guidance_btn.setVisible(False)
 
         self.send_btn = QPushButton("→")
@@ -299,15 +301,15 @@ class ChatWidget(QWidget):
             QPushButton#sendBtn { background: #057FCA; color: #0d0d0d; border: none; border-radius: 4px; font: 700 14px 'Segoe UI', 'Inter', sans-serif; letter-spacing: 0.2px; }
             QPushButton#sendBtn:hover { background: #059669; }
             QPushButton#guidanceBtn {
-                background: #0b2a3a;
-                color: #e9f6ff;
-                border: 1px solid rgba(52, 78, 102, 180);
-                border-radius: 6px;
-                font: 700 12px 'Segoe UI', 'Inter', sans-serif;
-                padding: 2px 10px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #057FCA, stop:1 #0369A1);
+                color: #ffffff;
+                border: 2px solid #38BDF8;
+                border-radius: 8px;
+                font: 700 13px 'Segoe UI', 'Inter', sans-serif;
+                padding: 4px 12px;
             }
-            QPushButton#guidanceBtn:hover { border-color: #057FCA; color: #ffffff; }
-            QPushButton#guidanceBtn:pressed { background: #08212f; border-color: #0a5f97; }
+            QPushButton#guidanceBtn:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0284C7, stop:1 #0EA5E9); border-color: #7DD3FC; }
+            QPushButton#guidanceBtn:pressed { background: #0369A1; border-color: #0284C7; }
         """)
 
     def _on_anchor_clicked(self, url: QUrl):
@@ -682,6 +684,15 @@ class ChatWidget(QWidget):
             self._start_turn()
             self.add_user_message(text)
             self.input_field.clear()
+            # Reset placeholder if it was changed for guidance
+            if self._guidance_input_active or self._guidance_active:
+                self.input_field.setPlaceholderText("> Type a command...")
+            # Check for new conversational guidance input first
+            if self._send_guidance_input(text):
+                return
+            # Check for legacy guidance feedback
+            if self._send_guidance_feedback(text):
+                return
             self.send_to_agent(text)
 
     def _append_message(self, *, kind: str, text: str):
@@ -866,7 +877,52 @@ class ChatWidget(QWidget):
         self._hide_input_hint()
         self._start_turn()
         self.add_user_message(text)
+        # Check for new conversational guidance input first
+        if self._send_guidance_input(text):
+            return
+        # Check for legacy guidance feedback
+        if self._send_guidance_feedback(text):
+            return
         self.send_to_agent(text)
+
+    def _send_guidance_input(self, text: str) -> bool:
+        """Handle input for conversational guidance mode."""
+        if not self._guidance_input_active:
+            return False
+        if not isinstance(self._guidance_input_payload, dict):
+            return False
+
+        payload = self._guidance_input_payload
+        self._guidance_input_payload = None
+        self._guidance_input_active = False
+
+        payload["feedback"] = text
+        event = payload.get("event")
+        if event is not None:
+            event.set()
+
+        return True
+
+    def _send_guidance_feedback(self, text: str) -> bool:
+        """Handle legacy guidance button feedback."""
+        if not self._guidance_active:
+            return False
+        if not isinstance(self._guidance_payload, dict):
+            return False
+
+        payload = self._guidance_payload
+        self._guidance_payload = None
+        self._guidance_active = False
+        self.guidance_btn.hide()
+
+        payload["result"] = False
+        payload["feedback"] = text
+        event = payload.get("event")
+        if event is not None:
+            event.set()
+
+        self._apply_view_mode()
+        return True
 
     def on_audio_level(self, level):
         self.voice_visualizer.set_level(level)
@@ -1063,7 +1119,37 @@ class ChatWidget(QWidget):
         self.guidance_btn.hide()
         self._apply_view_mode()
 
+    def show_guidance_input(self, payload: dict):
+        """Enable conversational guidance input mode.
+        
+        The next message from the user will be sent to the guidance session
+        instead of starting a new agent task. Also shows a "Next" button.
+        """
+        self._guidance_input_payload = payload
+        self._guidance_input_active = True
+        # Update placeholder to guide the user
+        self.input_field.setPlaceholderText("> Type 'done', ask a question, or describe what happened...")
+        # Show the Next button alongside the input
+        self.guidance_btn.setText("Next Step")
+        self.guidance_btn.setEnabled(True)
+        self.guidance_btn.show()
+        self._apply_view_mode()
+
     def _on_guidance_btn_clicked(self):
+        # Handle new conversational guidance input mode
+        if self._guidance_input_active and isinstance(self._guidance_input_payload, dict):
+            payload = self._guidance_input_payload
+            self._guidance_input_payload = None
+            self._guidance_input_active = False
+            self.guidance_btn.hide()
+            self.input_field.setPlaceholderText("> Type a command...")
+            # Set "done" as the default input when clicking Next
+            payload["feedback"] = "done"
+            if payload.get("event"):
+                payload["event"].set()
+            return
+            
+        # Handle legacy guidance button mode
         payload = self._guidance_payload
         self._guidance_payload = None
         self._guidance_active = False
@@ -1071,3 +1157,4 @@ class ChatWidget(QWidget):
         if isinstance(payload, dict):
             payload["result"] = True
             payload["event"].set()
+
