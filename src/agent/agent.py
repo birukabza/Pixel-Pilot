@@ -22,7 +22,7 @@ from tools.keyboard import KeyboardController
 from tools.loop import LoopDetector
 from skills import MediaSkill, BrowserSkill, SystemSkill, TimerSkill
 from agent.verify import verify_task_completion
-from agent.brain import plan_task_blind
+from agent.brain import plan_task_blind, plan_task_blind_first_step
 from agent.guidance import create_guidance_session
 from pydantic import BaseModel, Field
 
@@ -1097,11 +1097,22 @@ class AgentOrchestrator:
             reflexion_context = ""
 
             vision_active = not Config.ENABLE_BLIND_MODE
+            first_step_interactive = False
 
             while not task_complete and self.step_count < self.max_steps:
                 self._check_stop()
                 self.step_count += 1
                 self.log(f"\n--- Step {self.step_count}/{self.max_steps} ---")
+
+                if self.chat_window and self.step_count == 1:
+                    self.chat_window.set_click_through(False)
+                    first_step_interactive = True
+                elif (
+                    self.chat_window
+                    and first_step_interactive
+                    and self.active_workspace == "user"
+                ):
+                    self.chat_window.set_click_through(True)
 
                 self._ensure_workspace_active()
 
@@ -1125,18 +1136,34 @@ class AgentOrchestrator:
                         if self.task_history
                         else ""
                     )
-                    plan_result = plan_task_blind(
-                        user_command,
-                        task_ctx,
-                        self.model_history,
-                        current_workspace=self.active_workspace,
-                        agent_desktop_available=bool(self.desktop_manager and self.desktop_manager.is_created),
-                    )
+                    is_first_step = not self.task_history
+                    if is_first_step:
+                        plan_result = plan_task_blind_first_step(
+                            user_command,
+                            self.model_history,
+                            current_workspace=self.active_workspace,
+                            agent_desktop_available=bool(
+                                self.desktop_manager and self.desktop_manager.is_created
+                            ),
+                        )
+                    else:
+                        plan_result = plan_task_blind(
+                            user_command,
+                            task_ctx,
+                            self.model_history,
+                            current_workspace=self.active_workspace,
+                            agent_desktop_available=bool(
+                                self.desktop_manager and self.desktop_manager.is_created
+                            ),
+                        )
 
                     if plan_result:
                         action, model_response = plan_result
 
                         self._check_stop()
+
+                        if is_first_step:
+                            action["needs_vision"] = False
 
                         if action.get("needs_vision", False):
                             print(f"   [BLIND] Vision requested: {action.get('reasoning')}")

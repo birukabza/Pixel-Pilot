@@ -270,6 +270,11 @@ WORKSPACE RULES:
 - Use the user desktop for tasks tied to the user's active apps, or when they need to see or interact with the result directly.
 - Switch using action `switch_workspace` with params {{"workspace": "user"|"agent"}}.
 
+FIRST-STEP WORKSPACE DECISION:
+- If TASK CONTEXT is empty (first step), decide the correct workspace immediately.
+- If a switch is needed, output ONLY `switch_workspace` as the action with `needs_vision: false`.
+- After switching, you can request vision on the next step if required.
+
 {guidance_section}
 
 AVAILABLE SKILLS (HYBRID MODE):
@@ -486,4 +491,70 @@ RESPONSE FORMAT:
         return action_dict, model_part
     except Exception as e:
         print(f"Error in plan_task_blind: {e}")
+        return None
+
+
+def plan_task_blind_first_step(
+    user_command: str,
+    history: Optional[List] = None,
+    current_workspace: str = "user",
+    agent_desktop_available: bool = False,
+) -> Optional[tuple[Dict[str, Any], Any]]:
+    """
+    First-step blind planning focused only on workspace selection.
+    Must decide the workspace before any vision handoff.
+    """
+
+    workspace_section = f"CURRENT WORKSPACE: {current_workspace}"
+    agent_desktop_section = (
+        "AGENT DESKTOP AVAILABLE: YES" if agent_desktop_available else "AGENT DESKTOP AVAILABLE: NO"
+    )
+
+    prompt_text = f"""
+You are a 'Blind' AI OS Agent. This is the FIRST STEP ONLY.
+
+USER COMMAND: "{user_command}"
+{workspace_section}
+{agent_desktop_section}
+
+YOUR ONLY JOB ON THIS STEP:
+- Decide the correct workspace ("user" or "agent").
+- If a switch is needed, output ONLY the action `switch_workspace`.
+- Do NOT request vision on this step.
+
+WORKSPACE RULES:
+- Default to the agent desktop when the task does NOT require the user's live desktop and the user did not explicitly request the user desktop.
+- Examples for agent desktop: CLI checks (e.g., winget), installs, downloads, background tasks, browsing, long-running tasks.
+- Use the user desktop for tasks tied to the user's active apps or when they must see or interact with the result directly.
+- If the user explicitly mentions a desktop/workspace, follow it.
+
+RESPONSE FORMAT:
+{{
+    "action_type": "switch_workspace",
+    "params": {{ "workspace": "user"|"agent" }},
+    "reasoning": "Brief reason for workspace choice.",
+    "needs_vision": false,
+    "task_complete": false,
+    "skip_verification": true
+}}
+"""
+
+    contents = [types.Part(text=prompt_text)]
+    contents_to_send = history[-10:] if history else []
+    contents_to_send.append({"role": "user", "parts": contents})
+
+    try:
+        response = client.models.generate_content(
+            model=model,
+            contents=contents_to_send,
+            config={
+                "response_mime_type": "application/json",
+                "response_json_schema": PlannedAction.model_json_schema(),
+            },
+        )
+        model_part = response.candidates[0].content
+        action_dict = PlannedAction.model_validate_json(response.text).model_dump()
+        return action_dict, model_part
+    except Exception as e:
+        print(f"Error in plan_task_blind_first_step: {e}")
         return None
