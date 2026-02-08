@@ -20,7 +20,7 @@ class Config:
     VISION_MODE = os.getenv("VISION_MODE", "robo").strip().lower()
 
     USE_ROBOTICS_EYE = VISION_MODE in {"robo", "robotics", "er", "robotics-er"}
-    ROBOTICS_USE_BOUNDING_BOXES = True
+    ROBOTICS_USE_BOUNDING_BOXES = False
 
     LAZY_VISION = not USE_ROBOTICS_EYE
     INCREMENTAL_SCREENSHOTS = True
