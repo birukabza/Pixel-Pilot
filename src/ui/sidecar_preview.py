@@ -9,7 +9,7 @@ import logging
 from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtCore import QTimer, Qt, QPoint, QObject, Signal, QThread, QSize, Slot
-from PySide6.QtGui import QPixmap, QImage, QGuiApplication
+from PySide6.QtGui import QPixmap, QImage, QGuiApplication, QPainter, QPen, QPolygon, QColor
 from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QSizeGrip
 
 if TYPE_CHECKING:
@@ -50,6 +50,28 @@ class CaptureWorker(QObject):
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation
             )
+            
+            cx, cy = self.desktop_manager.get_cursor_pos()
+            
+            scale_x = scaled.width() / width
+            scale_y = scaled.height() / height
+            scx = int(cx * scale_x)
+            scy = int(cy * scale_y)
+            
+            painter = QPainter(scaled)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setPen(QPen(QColor(0, 0, 0), 1))  
+            painter.setBrush(QColor(255, 255, 255)) 
+            
+            poly = QPolygon([
+                QPoint(scx, scy),
+                QPoint(scx, scy + 12),
+                QPoint(scx + 4, scy + 8),
+                QPoint(scx + 8, scy + 8)
+            ])
+            painter.drawPolygon(poly)
+            painter.end()
+
             self.image_captured.emit(scaled)
         except Exception as e:
             logger.debug(f"Worker capture error: {e}")

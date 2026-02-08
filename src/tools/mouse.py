@@ -54,13 +54,25 @@ def _get_screen_size():
 
 
 def move_to(x: int, y: int, desktop_manager=None):
-    if desktop_manager:
-        desktop_manager.set_cursor_pos(x, y)
-        return
-        
     width, height = _get_screen_size()
     norm_x = int((x * 65536) / width) + 1
     norm_y = int((y * 65536) / height) + 1
+    
+    if desktop_manager:
+        desktop_manager.set_cursor_pos(x, y)
+        
+        def _move_on_desktop():
+            extra = ctypes.c_ulong(0)
+            ii_ = Input_I()
+            ii_.mi = MouseInput(
+                norm_x, norm_y, 0, MOUSEEVENTF_MOVED | MOUSEEVENTF_ABSOLUTE, 0, ctypes.pointer(extra)
+            )
+            command = Input(ctypes.c_ulong(INPUT_MOUSE), ii_)
+            ctypes.windll.user32.SendInput(1, ctypes.pointer(command), ctypes.sizeof(command))
+            
+        desktop_manager.run_on_desktop(_move_on_desktop)
+        return
+
     extra = ctypes.c_ulong(0)
     ii_ = Input_I()
     ii_.mi = MouseInput(
@@ -72,21 +84,20 @@ def move_to(x: int, y: int, desktop_manager=None):
 
 def click(desktop_manager=None):
     if desktop_manager:
-        x, y = desktop_manager.get_cursor_pos()
-        hwnd = desktop_manager.get_window_at_point(x, y)
-        if hwnd:
-            desktop_manager.set_foreground_window(hwnd)
-            import ctypes
-            from ctypes import wintypes
-            user32 = ctypes.windll.user32
+        def _click_on_desktop():
+            extra = ctypes.c_ulong(0)
+            ii_ = Input_I()
+            ii_.mi = MouseInput(0, 0, 0, MOUSEEVENTF_LEFTDOWN, 0, ctypes.pointer(extra))
+            x = Input(ctypes.c_ulong(INPUT_MOUSE), ii_)
+            ctypes.windll.user32.SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
             
-            point = wintypes.POINT(x, y)
-            user32.ScreenToClient(hwnd, ctypes.byref(point))
-            lparam = (point.y << 16) | (point.x & 0xFFFF)
-            
-            user32.PostMessageW(hwnd, 0x0201, 0x0001, lparam) 
             time.sleep(0.05)
-            user32.PostMessageW(hwnd, 0x0202, 0, lparam) 
+            
+            ii_.mi = MouseInput(0, 0, 0, MOUSEEVENTF_LEFTUP, 0, ctypes.pointer(extra))
+            x = Input(ctypes.c_ulong(INPUT_MOUSE), ii_)
+            ctypes.windll.user32.SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+            
+        desktop_manager.run_on_desktop(_click_on_desktop)
         return
         
     extra = ctypes.c_ulong(0)
