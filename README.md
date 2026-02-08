@@ -160,6 +160,22 @@ Natural language commands:
 
 PixelPilot runs as a standard desktop GUI app; close the window to exit.
 
+## Uninstall
+
+Run the uninstaller (removes scheduled tasks, shortcut, venv, dist, logs, media, and cache):
+
+```bash
+python uninstall.py
+```
+
+Optional flags:
+- `--no-tasks` to keep scheduled tasks and the desktop shortcut.
+- `--keep-venv` to keep the venv directory.
+- `--keep-dist` to keep the dist directory.
+- `--keep-logs` to keep logs.
+- `--keep-media` to keep media outputs.
+- `--keep-cache` to keep the app index cache.
+
 ## Troubleshooting
 
 - If the app opens and closes immediately, verify `.env` has `GEMINI_API_KEY`.

@@ -431,6 +431,7 @@ def main() -> None:
     create_desktop_shortcut()
 
     print("\n=== INSTALLATION COMPLETE ===")
+    input("Press Enter to exit...")
 
 
 if __name__ == "__main__":
