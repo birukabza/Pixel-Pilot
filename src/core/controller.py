@@ -287,16 +287,14 @@ class MainController(QObject):
 
     def update_sidecar_visibility(self):
         """Show or hide the sidecar based on the current workspace context."""
-        if not self.sidecar:
-            return
-            
         should_show = False
-        if self.agent:
-            if self.agent.active_workspace == "agent":
-                should_show = True
-            
+        if self.agent and self.agent.active_workspace == "agent":
+            if not self.sidecar:
+                self.init_sidecar()
+            should_show = bool(self.sidecar)
+
         if should_show:
             self.sidecar.show()
             self.sidecar.reattach()
-        else:
+        elif self.sidecar:
             self.sidecar.hide()

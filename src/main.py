@@ -242,18 +242,11 @@ def main():
 
     hotkeys.activated.connect(_on_hotkey)
     
-    # Initialize Agent (keep startup info out of main chat)
     adapter.add_activity_message("Startup")
     adapter.add_activity_message(f"Logging to: {log_file_path}")
     adapter.add_activity_message(f"Admin: {'YES' if is_admin() else 'NO'}")
     controller.init_agent()
     
-    try:
-        controller.init_sidecar()
-        if controller.sidecar:
-            adapter.add_activity_message("Agent Desktop ready")
-    except Exception as sidecar_err:
-        logger.debug(f"Sidecar initialization skipped: {sidecar_err}")
     
     if controller.agent:
         window.chat_widget.set_operation_mode(controller.agent.mode)

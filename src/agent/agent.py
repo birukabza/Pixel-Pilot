@@ -128,15 +128,37 @@ class AgentOrchestrator:
             except Exception:
                 pass
 
+    def _init_agent_desktop(self) -> bool:
+        if not Config.ENABLE_AGENT_DESKTOP:
+            return False
+
+        if self.desktop_manager and self.desktop_manager.is_created:
+            return True
+
+        try:
+            from desktop.desktop_manager import AgentDesktopManager
+
+            self.desktop_manager = AgentDesktopManager(Config.AGENT_DESKTOP_NAME)
+            if not self.desktop_manager.create_desktop():
+                self.desktop_manager = None
+                return False
+
+            self.desktop_manager.initialize_shell()
+            return True
+        except Exception:
+            self.desktop_manager = None
+            return False
+
     def _ensure_workspace_active(self) -> None:
         if self.active_workspace != "agent":
             return
 
         if not self.desktop_manager or not self.desktop_manager.is_created:
-            self._set_workspace(
-                "user",
-                reason="Agent Desktop unavailable; continuing on user desktop",
-            )
+            if not self._init_agent_desktop():
+                self._set_workspace(
+                    "user",
+                    reason="Agent Desktop unavailable; continuing on user desktop",
+                )
 
     def _restore_default_workspace(self, reason: str) -> None:
         target = (Config.DEFAULT_WORKSPACE or "user").strip().lower()
@@ -828,7 +850,7 @@ class AgentOrchestrator:
             return False
 
         if target == "agent":
-            if not self.desktop_manager or not self.desktop_manager.is_created:
+            if not self._init_agent_desktop():
                 self._set_workspace(
                     "user",
                     reason="Agent Desktop unavailable; continuing on user desktop",
