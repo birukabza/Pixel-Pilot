@@ -26,6 +26,7 @@ DESKTOP_JOURNALPLAYBACK = 0x0020
 DESKTOP_JOURNALRECORD = 0x0010
 DESKTOP_READOBJECTS = 0x0001
 GENERIC_ALL = 0x10000000
+PROCESS_TERMINATE = 0x0001
 
 SRCCOPY = 0x00CC0020
 DIB_RGB_COLORS = 0
@@ -69,6 +70,7 @@ class AgentDesktopManager:
         self._lock = threading.Lock()
         self._created = False
         self._cursor_pos = (0, 0)
+        self._tracked_pids: list[int] = []
 
     @property
     def is_created(self) -> bool:
@@ -414,12 +416,35 @@ class AgentDesktopManager:
             dwCreationFlags = 0x00000010 | 0x00000400
             success = kernel32.CreateProcessW(None, command, None, None, False, dwCreationFlags, None, working_dir, ctypes.byref(si), ctypes.byref(pi))
             if success:
+                try:
+                    if pi.dwProcessId:
+                        self._tracked_pids.append(int(pi.dwProcessId))
+                except Exception:
+                    pass
                 kernel32.CloseHandle(pi.hProcess)
                 kernel32.CloseHandle(pi.hThread)
                 return True
             return False
         except Exception:
             return False
+
+    def terminate_tracked_processes(self) -> None:
+        if not self._tracked_pids:
+            return
+
+        remaining = []
+        for pid in self._tracked_pids:
+            try:
+                h_proc = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+                if h_proc:
+                    kernel32.TerminateProcess(h_proc, 1)
+                    kernel32.CloseHandle(h_proc)
+                else:
+                    remaining.append(pid)
+            except Exception:
+                remaining.append(pid)
+
+        self._tracked_pids = remaining
 
     def list_windows(self) -> list:
         windows = []
@@ -438,9 +463,34 @@ class AgentDesktopManager:
             
         return self.run_on_desktop(_enumerate) or []
 
+    def close_all_windows(self, timeout: float = 2.0) -> None:
+        if not self._desktop_handle:
+            return
+
+        try:
+            windows = self.list_windows()
+            for w in windows:
+                try:
+                    user32.PostMessageW(w["hwnd"], 0x0010, 0, 0)  # WM_CLOSE
+                except Exception:
+                    pass
+
+            if timeout > 0:
+                time.sleep(timeout)
+        except Exception:
+            pass
+
     def close(self):
         with self._lock:
             if self._desktop_handle:
+                try:
+                    self.close_all_windows(timeout=0.5)
+                except Exception:
+                    pass
+                try:
+                    self.terminate_tracked_processes()
+                except Exception:
+                    pass
                 try:
                     user32.CloseDesktop(self._desktop_handle)
                 except Exception:

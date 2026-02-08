@@ -276,7 +276,7 @@ def main():
         splash.finish(window)
         
     logger.debug("Pixel Pilot GUI shown")
+    app.aboutToQuit.connect(controller.shutdown)
     sys.exit(app.exec())
-
 if __name__ == "__main__":
     main()

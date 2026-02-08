@@ -226,6 +226,41 @@ class MainController(QObject):
         except Exception as e:
             self.gui_adapter.add_error_message(f"Failed to toggle interactivity: {e}")
 
+    def shutdown(self):
+        """Gracefully stop running tasks and close agent desktop resources."""
+        try:
+            if self.worker and self.worker.isRunning():
+                try:
+                    self.stop_current_request()
+                except Exception:
+                    pass
+                try:
+                    self.worker.wait(2000)
+                except Exception:
+                    pass
+
+            if self.sidecar:
+                try:
+                    self.sidecar.close()
+                except Exception:
+                    pass
+
+            if self.desktop_manager:
+                try:
+                    self.desktop_manager.close_all_windows(timeout=1.5)
+                except Exception:
+                    pass
+                try:
+                    self.desktop_manager.terminate_tracked_processes()
+                except Exception:
+                    pass
+                try:
+                    self.desktop_manager.close()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     @Slot(object)
     def handle_mode_changed(self, mode):
         if not self.agent:
