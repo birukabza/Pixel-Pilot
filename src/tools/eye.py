@@ -2,6 +2,7 @@ import concurrent.futures
 import warnings
 import json
 import os
+import logging
 import cv2
 import easyocr
 import numpy as np
@@ -23,6 +24,8 @@ warnings.filterwarnings(
     "ignore", message="'pin_memory' argument is set as true but no accelerator is found"
 )
 
+logger = logging.getLogger(__name__)
+
 
 class LocalCVEye:
     """Local computer-vision based eye using EasyOCR + contour/icon detection."""
@@ -32,11 +35,11 @@ class LocalCVEye:
         self.reader = easyocr.Reader([lang], gpu=self.use_gpu)
 
     def _run_ocr(self, img):
-        print("   -> Running OCR...")
+        logger.info("Running OCR...")
         return self.reader.readtext(img)
 
     def _run_icon_detection(self, img, text_boxes):
-        print("   -> Detecting Icons (Dual-Pass High Sensitivity)...")
+        logger.info("Detecting icons (dual-pass high sensitivity)...")
         return self.find_mystery_icons_sensitive(img, text_boxes)
 
     def get_screen_elements(self, image_path: str) -> List[Dict[str, Any]]:
@@ -290,7 +293,7 @@ class GeminiRoboticsEye:
         task_context: Optional[str] = None,
         current_step: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        print("   -> Using Gemini Robotics-ER for element detection...")
+        logger.info("Using Gemini Robotics-ER for element detection...")
 
         with open(image_path, "rb") as f:
             image_bytes = f.read()
@@ -358,17 +361,17 @@ class GeminiRoboticsEye:
                     }
                 )
 
-            print(f"   -> Found {len(elements)} elements using Gemini Robotics")
+            logger.info("Found %s elements using Gemini Robotics", len(elements))
             return elements
 
         except Exception as e:
-            print(f"   -> Error calling Gemini API: {e}")
+            logger.exception("Error calling Gemini API: %s", e)
             return []
 
     def get_screen_elements_with_boxes(
         self, image_path: str, max_elements: int = 25
     ) -> List[Dict[str, Any]]:
-        print("   -> Using Gemini Robotics-ER for bounding box detection...")
+        logger.info("Using Gemini Robotics-ER for bounding box detection...")
 
         with open(image_path, "rb") as f:
             image_bytes = f.read()
@@ -454,19 +457,19 @@ Return only the JSON array.
                     }
                 )
 
-            print(f"   -> Found {len(elements)} elements with bounding boxes")
+            logger.info("Found %s elements with bounding boxes", len(elements))
             return elements
 
         except json.JSONDecodeError as e:
-            print(f"   -> Error parsing Gemini response: {e}")
-            print(f"   -> Response was: {response.text[:500]}")
+            logger.exception("Error parsing Gemini response: %s", e)
+            logger.warning("Gemini response snippet: %s", response.text[:500])
             return []
         except Exception as e:
-            print(f"   -> Error calling Gemini API: {e}")
+            logger.exception("Error calling Gemini API: %s", e)
             return []
 
     def find_specific_elements(self, image_path: str, queries: List[str]) -> List[Dict[str, Any]]:
-        print(f"   -> Searching for specific elements: {queries}")
+        logger.info("Searching for specific elements: %s", queries)
 
         with open(image_path, "rb") as f:
             image_bytes = f.read()
@@ -538,11 +541,11 @@ Return only the JSON array, no code fencing.
                     }
                 )
 
-            print(f"   -> Found {len(elements)} matching elements")
+            logger.info("Found %s matching elements", len(elements))
             return elements
 
         except Exception as e:
-            print(f"   -> Error: {e}")
+            logger.exception("Error searching for specific elements: %s", e)
             return []
 
     def _build_dynamic_prompt(

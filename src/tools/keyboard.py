@@ -1,10 +1,13 @@
 import time
+import logging
 from typing import Optional
 import pyautogui
 import pyperclip
 
 pyautogui.FAILSAFE = False
 pyautogui.PAUSE = 0.1
+
+logger = logging.getLogger(__name__)
 
 try:
     import keyboard as _third_party_keyboard
@@ -253,18 +256,18 @@ def key_combo(*keys: str, desktop_manager=None) -> bool:
 
 
 if __name__ == "__main__":
-    print("Testing Keyboard Controller...")
-    print("\n1. Testing key press (Enter)...")
+    logger.info("Testing Keyboard Controller...")
+    logger.info("1. Testing key press (Enter)...")
     time.sleep(2)
     keyboard_controller.press_key("enter")
 
-    print("\n2. Testing key combo (Ctrl+C)...")
+    logger.info("2. Testing key combo (Ctrl+C)...")
     time.sleep(1)
     keyboard_controller.key_combo("ctrl", "c")
 
-    print("\n3. Testing clipboard...")
+    logger.info("3. Testing clipboard...")
     keyboard_controller.copy_to_clipboard("Hello from AI Agent!")
     time.sleep(1)
-    print(f"Clipboard content: {keyboard_controller.get_clipboard_text()}")
+    logger.info("Clipboard content: %s", keyboard_controller.get_clipboard_text())
 
-    print("\n Keyboard Controller tests complete!")
+    logger.info("Keyboard Controller tests complete!")

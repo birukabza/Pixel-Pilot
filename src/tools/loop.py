@@ -1,10 +1,14 @@
 import json
 import hashlib
+import logging
 from collections import deque
 import imagehash
 from typing import Any, Dict, List, Optional
 from PIL import Image
-from agent.brain import get_model
+from agent.brain import get_gemini_client
+
+
+logger = logging.getLogger(__name__)
 
 
 class LoopDetector:
@@ -48,7 +52,7 @@ class LoopDetector:
             phash = imagehash.phash(img, hash_size=16)
             return str(phash)
         except Exception as e:
-            print(f"Warning: Could not hash screen: {e}")
+            logger.warning("Could not hash screen: %s", e)
 
             with open(screenshot_path, "rb") as f:
                 return hashlib.md5(f.read()).hexdigest()
@@ -225,16 +229,16 @@ Return a JSON array of suggestions:
 }}
 """
 
-            model = get_model()
-            response = model.generate_content(
-                [prompt], config={"response_mime_type": "application/json"}
+            response = get_gemini_client().generate(
+                contents=[{"role": "user", "parts": [{"text": prompt}]}],
+                config={"response_mime_type": "application/json"},
             )
 
             result = json.loads(response.text)
             return result.get("suggestions", [])
 
         except Exception as e:
-            print(f"Error generating loop alternatives: {e}")
+            logger.exception("Error generating loop alternatives: %s", e)
 
             return [
                 "Try a different approach to accomplish the same goal",

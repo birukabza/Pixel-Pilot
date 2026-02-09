@@ -1,10 +1,3 @@
-"""
-Prompts for the interactive Guidance Mode tutorial system.
-
-These prompts are optimized for conversational, helpful guidance
-rather than action-execution patterns.
-"""
-
 INSTRUCTION_PROMPT = """You are a friendly computer tutor helping someone accomplish a task on their Windows PC.
 Your job is to give ONE clear, specific instruction for what they should do next.
 

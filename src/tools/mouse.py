@@ -1,7 +1,10 @@
 import ctypes
 import time
+import logging
 
 PUL = ctypes.POINTER(ctypes.c_ulong)
+
+logger = logging.getLogger(__name__)
 
 
 class KeyBdInput(ctypes.Structure):
@@ -153,10 +156,10 @@ def right_click_at(x: int, y: int, desktop_manager=None):
 
 
 if __name__ == "__main__":
-    print("Testing mouse move...")
+    logger.info("Testing mouse move...")
     time.sleep(2)
     move_to(500, 500)
-    print("Moved to 500, 500")
+    logger.info("Moved to 500, 500")
     time.sleep(1)
     click()
-    print("Clicked")
+    logger.info("Clicked")

@@ -1,7 +1,12 @@
 import json
+import logging
+from datetime import datetime
 from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
-from agent.brain import get_model
+
+from agent.brain import get_gemini_client
+logger = logging.getLogger(__name__)
 from config import Config, OperationMode
 
 
@@ -35,7 +40,7 @@ class ClarificationManager:
         Initialize the clarification manager.
 
         Args:
-            chat_window: Optional ChatWindow instance for GUI mode
+            chat_window: Optional ChatWindow instance
             mode: Operation mode
         """
         self.chat_window = chat_window
@@ -85,13 +90,10 @@ class ClarificationManager:
         if not question:
             question = self.generate_question(action, user_command)
 
-        if self.chat_window:
-            return self.chat_window.ask_input("Clarification Needed", question)
-        else:
-            print("\n🤔 CLARIFICATION NEEDED")
-            print(f"Question: {question}")
-            answer = input("Your answer: ").strip()
-            return answer if answer else None
+        if not self.chat_window:
+            return None
+
+        return self.chat_window.ask_input("Clarification Needed", question)
 
     def present_options(
         self, options: List[str], question: str = "Please choose an option:"
@@ -106,34 +108,22 @@ class ClarificationManager:
         Returns:
             Selected option index (0-based) or None if cancelled
         """
-        if self.chat_window:
-            formatted = f"{question}\n\n"
-            for i, opt in enumerate(options):
-                formatted += f"{i + 1}. {opt}\n"
-
-            answer = self.chat_window.ask_input("Choose an Option", formatted)
-            if answer:
-                try:
-                    choice = int(answer) - 1
-                    if 0 <= choice < len(options):
-                        return choice
-                except ValueError:
-                    pass
+        if not self.chat_window:
             return None
-        else:
-            print(f"\n🤔 {question}")
-            for i, opt in enumerate(options):
-                print(f"  {i + 1}. {opt}")
 
+        formatted = f"{question}\n\n"
+        for i, opt in enumerate(options):
+            formatted += f"{i + 1}. {opt}\n"
+
+        answer = self.chat_window.ask_input("Choose an Option", formatted)
+        if answer:
             try:
-                choice_str = input("\nYour choice (number): ").strip()
-                choice = int(choice_str) - 1
+                choice = int(answer) - 1
                 if 0 <= choice < len(options):
                     return choice
-            except (ValueError, KeyboardInterrupt):
+            except ValueError:
                 pass
-
-            return None
+        return None
 
     def generate_question(self, action: Dict[str, Any], user_command: str) -> str:
         """
@@ -177,13 +167,9 @@ Return JSON:
 }}
 """
 
-            model = get_model()
-            response = model.generate_content(
-                [prompt],
-                config={
-                    "response_mime_type": "application/json",
-                    "response_json_schema": ClarificationQuestion.model_json_schema(),
-                },
+            response = get_gemini_client().generate_structured(
+                contents=[{"role": "user", "parts": [{"text": prompt}]}],
+                response_schema=ClarificationQuestion.model_json_schema(),
             )
 
             result = ClarificationQuestion.model_validate_json(response.text)
@@ -198,8 +184,8 @@ Return JSON:
             else:
                 return question
 
-        except Exception as e:
-            print(f"Error generating clarification question: {e}")
+        except Exception:
+            logger.exception("Error generating clarification question")
 
             return f"I'm {confidence:.0%} confident about {action_type}. Can you provide more details about what you want to do?"
 
@@ -222,7 +208,7 @@ Return JSON:
                 {
                     "original_action": action,
                     "user_answer": answer,
-                    "timestamp": str(datetime.now()) if "datetime" in dir() else "",
+                    "timestamp": datetime.now().isoformat(),
                 }
             )
 
@@ -253,19 +239,15 @@ Return the updated action in the same JSON format:
 }}
 """
 
-            model = get_model()
-            response = model.generate_content(
-                [prompt],
-                config={
-                    "response_mime_type": "application/json",
-                    "response_json_schema": RefinedAction.model_json_schema(),
-                },
+            response = get_gemini_client().generate_structured(
+                contents=[{"role": "user", "parts": [{"text": prompt}]}],
+                response_schema=RefinedAction.model_json_schema(),
             )
 
             return RefinedAction.model_validate_json(response.text).model_dump()
 
-        except Exception as e:
-            print(f"Error integrating clarification answer: {e}")
+        except Exception:
+            logger.exception("Error integrating clarification answer")
 
             action["clarification_needed"] = False
             return action
@@ -287,8 +269,7 @@ Return the updated action in the same JSON format:
         loop_info.get("pattern", "unknown")
         count = loop_info.get("count", 0)
 
-        message = f"""
-🔄 LOOP DETECTED
+        message = f""" LOOP DETECTED
 
 I've been stuck repeating the same action {count} times without progress.
 
@@ -299,39 +280,23 @@ The AI suggests trying these alternatives:
 
         options = suggestions + ["Let me describe a different approach", "Cancel this task"]
 
-        if self.chat_window:
-            formatted = message
-            for i, opt in enumerate(options, 1):
-                formatted += f"\n{i}. {opt}"
+        if not self.chat_window:
+            return None
 
-            choice = self.chat_window.ask_input("Loop Detected - Need Help", formatted)
-            if choice:
-                try:
-                    idx = int(choice) - 1
-                    if 0 <= idx < len(options):
-                        if idx == len(options) - 1:
-                            return None
-                        return options[idx]
-                except ValueError:
-                    return choice
-        else:
-            print(f"\n⚠️  {message}")
-            for i, opt in enumerate(options, 1):
-                print(f"{i}. {opt}")
+        formatted = message
+        for i, opt in enumerate(options, 1):
+            formatted += f"\n{i}. {opt}"
 
-            choice_str = input("\nYour choice (number or describe approach): ").strip()
-
-            if not choice_str:
-                return None
-
+        choice = self.chat_window.ask_input("Loop Detected - Need Help", formatted)
+        if choice:
             try:
-                idx = int(choice_str) - 1
+                idx = int(choice) - 1
                 if 0 <= idx < len(options):
                     if idx == len(options) - 1:
                         return None
                     return options[idx]
             except ValueError:
-                return choice_str
+                return choice
 
         return None
 

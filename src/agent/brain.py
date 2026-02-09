@@ -1,32 +1,37 @@
 import io
-import json
+import logging
 from typing import Any, Dict, List, Optional
-from google import genai
+
 from google.genai import types
 from PIL import Image, ImageDraw, ImageFont
-from pydantic import BaseModel, Field
+
 from config import Config
+from services.gemini import ConversationHistory, GeminiClient
+from services.gemini.agent_tools import create_planning_registry, get_action_from_tool_calls
 
-api_key = Config.GEMINI_API_KEY
-model = Config.GEMINI_MODEL
-if not api_key:
-    raise ValueError("Missing API Key! Set GEMINI_API_KEY in your .env or environment.")
+_gemini_client = GeminiClient(
+    api_key=Config.GEMINI_API_KEY,
+    default_model=Config.GEMINI_MODEL,
+)
 
-client = genai.Client(api_key=api_key)
-
-
-class ModelWrapper:
-    def __init__(self, model_name):
-        self.model_name = model_name
-
-    def generate_content(self, contents, config=None):
-        return client.models.generate_content(
-            model=self.model_name, contents=contents, config=config
-        )
+logger = logging.getLogger(__name__)
 
 
-def get_model():
-    return ModelWrapper(model)
+def get_gemini_client() -> GeminiClient:
+    return _gemini_client
+
+
+def _image_to_part(img: Image.Image, res: str = "low") -> types.Part:
+    res_map = {"low": "MEDIA_RESOLUTION_LOW", "high": "MEDIA_RESOLUTION_HIGH"}
+    res_enum = res_map.get(res.lower(), "MEDIA_RESOLUTION_LOW")
+
+    img_byte_arr = io.BytesIO()
+    img.save(img_byte_arr, format="PNG")
+    return types.Part.from_bytes(
+        data=img_byte_arr.getvalue(),
+        mime_type="image/png",
+        media_resolution=res_enum,
+    )
 
 
 def create_reference_sheet(crops):
@@ -58,125 +63,6 @@ def create_reference_sheet(crops):
     return sheet
 
 
-class ActionResponse(BaseModel):
-    element_id: int = Field(
-        description="The ID number of the element to interact with from labels."
-    )
-    reasoning: str = Field(description="Reasoning for choosing this specific element.")
-
-
-class SubAction(BaseModel):
-    action_type: str = Field(
-        description=(
-            "The type of action: click, right_click, type_text, press_key, key_combo, open_app, wait, "
-            "magnify, switch_workspace"
-        )
-    )
-    params: Dict[str, Any] = Field(
-        description="Parameters for the action. For 'click'/'right_click', MUST include 'element_id'. For 'type_text', MUST include 'text'."
-    )
-    reasoning: str = Field(description="Reasoning for this specific sub-action")
-
-
-class PlannedAction(BaseModel):
-    action_type: str = Field(
-        description="The primary action type (or 'sequence' if using action_sequence)"
-    )
-    params: Dict[str, Any] = Field(description="Parameters for the action")
-    reasoning: str = Field(description="Detailed logic for this decision")
-    confidence: float = Field(
-        description="Score between 0.0 and 1.0 indicating AI certainty"
-    )
-    clarification_needed: bool = Field(
-        description="True if the AI needs more info from user"
-    )
-    clarification_question: Optional[str] = Field(
-        description="Question to ask user if clarification_needed is True"
-    )
-    task_complete: bool = Field(description="True if the user's objective is finished")
-    skip_verification: bool = Field(
-        default=False,
-        description="True if verification/screenshot is unnecessary (e.g., for trivial actions like 'reply' or 'wait')",
-    )
-    needs_vision: bool = Field(
-        default=False,
-        description="True if you cannot complete the task without seeing the screen (e.g. need to click buttons, find icons).",
-    )
-    expected_result: Optional[str] = Field(
-        description="What should happen after this action"
-    )
-    action_sequence: Optional[List[SubAction]] = Field(
-        default=None,
-        description="A sequence of actions to execute at once (Turbo Mode)",
-    )
-
-
-def ask_brain(
-    user_command,
-    screen_elements,
-    original_path,
-    debug_path,
-    reference_sheet,
-    media_resolution: str = "low",
-):
-    """
-    Sends 3 Images to Gemini: Original, Annotated (Green IDs), and Reference (Zoomed).
-    Returns a single action decision.
-    """
-    try:
-        clean_image = Image.open(original_path)
-        annotated_image = Image.open(debug_path)
-    except Exception as e:
-        print(f"Error loading images: {e}")
-        return None
-
-    elements_str = "\n".join(
-        [f"ID {el['id']}: {el['type']} '{el['label']}'" for el in screen_elements[:100]]
-    )
-
-    prompt_text = f"""
-    You are an AI OS Agent.
-    USER COMMAND: "{user_command}"
-    
-    DETECTED ELEMENTS:
-    {elements_str}
-
-    ATTACHMENTS PROVIDED:
-    1. [Original Screen]: The user's actual view.
-    2. [Annotated Screen]: Green overlays with ID NUMBERS on every clickable element.
-
-    INSTRUCTIONS:
-    1. Use [Original Screen] to understand context (e.g., "Where is the Spotify window?").
-    2. Use [Annotated Screen] to get the exact ID Number.
-
-    CRITICAL:
-    - Return the ID found on the [Annotated Screen] overlay.
-    - If targeting a tab/list, pick the ID centered on the text/icon.
-    - If there are multiple references that look very similar and confusing for the user command
-      (like "Close" buttons), focus on the original screen and the annotated screen to find
-      the correct ID.
-
-    Return JSON: {{ "element_id": <int>, "reasoning": "<string>" }}
-    """
-
-    contents = [prompt_text, clean_image, annotated_image]
-
-    try:
-        response = client.models.generate_content(
-            model=model,
-            contents=contents,
-            config={
-                "response_mime_type": "application/json",
-                "response_json_schema": ActionResponse.model_json_schema(),
-                "tools": [types.Tool(google_search=types.GoogleSearch())],
-            },
-        )
-        return ActionResponse.model_validate_json(response.text).model_dump()
-    except Exception as e:
-        print(f"Gemini Error: {e}")
-        return None
-
-
 def plan_task(
     user_command: str,
     screen_elements: List[Dict],
@@ -185,8 +71,7 @@ def plan_task(
     reference_sheet,
     task_context: Optional[str] = None,
     magnification_hint: Optional[str] = None,
-    history: Optional[List] = None,
-    guidance_mode: bool = False,
+    history: Optional[ConversationHistory] = None,
     current_workspace: str = "user",
     agent_desktop_available: bool = False,
     media_resolution: str = "low",
@@ -211,8 +96,8 @@ def plan_task(
     try:
         clean_image = Image.open(original_path)
         annotated_image = Image.open(debug_path)
-    except Exception as e:
-        print(f"Error loading images: {e}")
+    except Exception:
+        logger.exception("Error loading images for plan_task")
         return None
 
     elements_str = "\n".join(
@@ -237,17 +122,6 @@ def plan_task(
         if agent_desktop_available
         else "AGENT DESKTOP AVAILABLE: NO"
     )
-    guidance_section = ""
-    if guidance_mode:
-        guidance_section = """
-GUIDANCE MODE (HUMAN-FOLLOWING):
-- Prefer manual steps a human can do: open_app, press_key, key_combo, click, type_text.
-- Avoid call_skill unless no UI path exists.
-- Prefer clicks on OCR text elements that match the user's words (e.g., "Chrome", "Settings", "Search").
-- If a label is visible in OCR, choose that element_id instead of a generic control.
-- Do not output generic actions like "open system controls" when a specific OCR label exists.
-"""
-
     prompt_text = f"""
 You are Pixel Pilot, a desktop assistant system that can plan and execute tasks using vision and blind control.
 
@@ -266,7 +140,7 @@ ATTACHMENTS:
 3. [Reference Sheet] (Optional): Zoomed view of icons/buttons.
 
 YOUR TASK:
-Analyze the user's command and current screen state. Return a JSON plan with the NEXT action(s) to take.
+Analyze the user's command and current screen state. Use `emit_action` to return the NEXT action(s) to take.
 
 COORDINATION RULES:
 - You are the VISION agent. A BLIND agent exists and can take over when visual context is not needed.
@@ -280,16 +154,9 @@ IDENTITY RULE:
 WORKSPACE RULES:
 - Workspaces: "user" (user's live desktop) and "agent" (isolated Agent Desktop).
 - Default to the agent desktop when the task does NOT require the user's live desktop and the user did not explicitly request the user desktop.
-- Examples that usually belong on the agent desktop: CLI checks (e.g., verifying winget), downloads, background installs, browsing, and long-running tasks.
+- Examples that usually belong on the agent desktop: background installs, downloads, browsing, and long-running tasks.
 - Use the user desktop for tasks tied to the user's active apps, or when they need to see or interact with the result directly.
 - Switch using action `switch_workspace` with params {{"workspace": "user"|"agent"}}.
-
-FIRST-STEP WORKSPACE DECISION:
-- If TASK CONTEXT is empty (first step), decide the correct workspace immediately.
-- If a switch is needed, output ONLY `switch_workspace` as the action with `needs_vision: false`.
-- After switching, you can request vision on the next step if required.
-
-{guidance_section}
 
 AVAILABLE SKILLS (HYBRID MODE):
 - The agent has "Skills" that use APIs instead of UI interaction. Use them PREFERENTIALLY for reliability.
@@ -332,18 +199,10 @@ TURBO MODE RULES:
 - Do NOT sequence actions if the first action changes the screen drastically (like opening a new window) and you need to see the result before acting.
 - In 'action_sequence', the 'action_type' of the parent JSON MUST be "sequence".
 
-RESPONSE FORMAT:
-{{
-    "action_type": "...", 
-    "params": {{ ... }},
-    "reasoning": "Explain WHY you chose this action and this ID.",
-    "confidence": 0.0-1.0,
-    "clarification_needed": false,
-    "task_complete": false,
-    "skip_verification": false,
-    "needs_vision": true,
-    "action_sequence": [...]
-}}
+FUNCTION CALLING:
+- Use the tool `emit_action` to return your decision.
+- Do NOT output JSON text directly.
+- Include reasoning and control flags in the tool arguments.
 
 CRITICAL GUIDELINES:
 1. **ID Precision**: You MUST use the `element_id` from the [Annotated Screen] or the provided list. Do not hallucinate IDs.
@@ -356,57 +215,44 @@ CRITICAL GUIDELINES:
 
 """
 
-    def pil_to_part(img, res="low"):
-        res_map = {"low": "MEDIA_RESOLUTION_LOW", "high": "MEDIA_RESOLUTION_HIGH"}
-        res_enum = res_map.get(res.lower(), "MEDIA_RESOLUTION_LOW")
-
-        img_byte_arr = io.BytesIO()
-        img.save(img_byte_arr, format="PNG")
-        return types.Part.from_bytes(
-            data=img_byte_arr.getvalue(),
-            mime_type="image/png",
-            media_resolution=res_enum,
-        )
-
-    contents = [
-        types.Part(text=prompt_text),
-        pil_to_part(clean_image, res=media_resolution),
-        pil_to_part(annotated_image, res=media_resolution),
+    parts = [
+        {"text": prompt_text},
+        _image_to_part(clean_image, res=media_resolution),
+        _image_to_part(annotated_image, res=media_resolution),
     ]
     if reference_sheet:
-        contents.append(pil_to_part(reference_sheet, res=media_resolution))
+        parts.append(_image_to_part(reference_sheet, res=media_resolution))
 
-    contents_to_send = history[-10:] if history else []
-    contents_to_send.append({"role": "user", "parts": contents})
+    history_manager = history if isinstance(history, ConversationHistory) else ConversationHistory()
+    history_manager.add_user_message(parts)
+
+    tool_registry = create_planning_registry()
 
     try:
-        response = client.models.generate_content(
-            model=model,
-            contents=contents_to_send,
-            config={
-                "response_mime_type": "application/json",
-                "response_json_schema": PlannedAction.model_json_schema(),
-                "thinking_config": {"thinking_level": "high"},
-                "tools": [
-                    types.Tool(google_search=types.GoogleSearch()),
-                    types.Tool(code_execution=types.ToolCodeExecution()),
-                ],
-            },
+        response, tool_records = get_gemini_client().generate_with_tools(
+            contents=history_manager.get_messages_for_api(),
+            tool_registry=tool_registry,
+            response_schema=None,
         )
 
-        model_part = response.candidates[0].content
-        action_dict = PlannedAction.model_validate_json(response.text).model_dump()
+        model_part = response.candidates[0].content if response.candidates else None
+        if model_part:
+            history_manager.add_model_response(model_part.parts)
 
-        return action_dict, model_part
-    except Exception as e:
-        print(f"Error in plan_task: {e}")
+        action = get_action_from_tool_calls(tool_records)
+        if action is None:
+            return None
+
+        return action, model_part
+    except Exception:
+        logger.exception("Error in plan_task")
         return None
 
 
 def plan_task_blind(
     user_command: str,
     task_context: Optional[str] = None,
-    history: Optional[List] = None,
+    history: Optional[ConversationHistory] = None,
     current_workspace: str = "user",
     agent_desktop_available: bool = False,
 ) -> Optional[tuple[Dict[str, Any], Any]]:
@@ -436,6 +282,8 @@ USER COMMAND: "{user_command}"
 {workspace_section}
 {agent_desktop_section}
 
+TURBO MODE STATUS: {turbo_status}
+
 YOUR GOAL:
 Try to fulfill the user's request using ONLY the available blind tools.
 However, you must be extremely CAUTIOUS. "Blind Mode" is efficient but risky.
@@ -452,7 +300,7 @@ IDENTITY RULE:
 WORKSPACE RULES:
 - Workspaces: "user" (user's live desktop) and "agent" (isolated Agent Desktop).
 - Default to the agent desktop when the task does NOT require the user's live desktop and the user did not explicitly request the user desktop.
-- Examples that usually belong on the agent desktop: CLI checks (e.g., verifying winget), downloads, background installs, browsing, and long-running tasks.
+- Examples that usually belong on the agent desktop: background installs, downloads, browsing, and long-running tasks.
 - Use the user desktop for tasks tied to the user's active apps, or when they need to see or interact with the result directly.
 - Switch using action `switch_workspace` with params {{"workspace": "user"|"agent"}}.
 
@@ -462,6 +310,12 @@ CRITICAL "FEAR OF FAILURE" PROTOCOL:
 3. **Future Thinking**: Before performing a blind action, ask: "Will I need to see the result of this immediately?" If yes, switch to vision *now*.
 4. **No Guessing**: If the user asks to "click the login button", do NOT try to tab-navigate blindly unless you are extremely confident. Just request vision.
 5. **Context Awareness**: If the previous step failed or had low confidence, do NOT continue blindly. Switch to vision.
+
+TURBO MODE RULES:
+- If {turbo_status} == ENABLED, you SHOULD combine multiple stable steps into 'action_sequence'.
+- Example: Click 'Search', Wait 0.5s, Type 'Notepad', Press 'Enter'.
+- Do NOT sequence actions if the first action changes the screen drastically (like opening a new window) and you need to see the result before acting.
+- In 'action_sequence', the 'action_type' of the parent JSON MUST be "sequence".
 
 AVAILABLE BLIND ACTIONS:
 - type_text: Type text. Params: {{"text": "..."}} (Assumes correct field is focused!)
@@ -486,40 +340,41 @@ RESPONSE RULES:
 - If the task is "What is on my screen?", set `needs_vision: true`.
 - When using `reply`, ALWAYS put the answer in `params.text` (not `message`).
 
-RESPONSE FORMAT:
-{{
-    "action_type": "...",
-    "params": {{ ... }},
-    "reasoning": "Explain your risk assessment here. Why is blind safe? Or why is vision needed?",
-    "needs_vision": false,  <-- SET TO TRUE IF YOU NEED TO SEE, VERIFY, OR CHECK FOR ERRORS
-    "task_complete": false,
-    "skip_verification": false
-}}
+FUNCTION CALLING:
+- Use the tool `emit_action` to return your decision.
+- Do NOT output JSON text directly.
+- Include reasoning and control flags in the tool arguments.
 """
-    contents = [types.Part(text=prompt_text)]
-    contents_to_send = history[-10:] if history else []
-    contents_to_send.append({"role": "user", "parts": contents})
+    parts = [{"text": prompt_text}]
+
+    history_manager = history if isinstance(history, ConversationHistory) else ConversationHistory()
+    history_manager.add_user_message(parts)
+
+    tool_registry = create_planning_registry()
 
     try:
-        response = client.models.generate_content(
-            model=model,
-            contents=contents_to_send,
-            config={
-                "response_mime_type": "application/json",
-                "response_json_schema": PlannedAction.model_json_schema(),
-            },
+        response, tool_records = get_gemini_client().generate_with_tools(
+            contents=history_manager.get_messages_for_api(),
+            tool_registry=tool_registry,
+            response_schema=None,
         )
-        model_part = response.candidates[0].content
-        action_dict = PlannedAction.model_validate_json(response.text).model_dump()
-        return action_dict, model_part
-    except Exception as e:
-        print(f"Error in plan_task_blind: {e}")
+        model_part = response.candidates[0].content if response.candidates else None
+        if model_part:
+            history_manager.add_model_response(model_part.parts)
+
+        action = get_action_from_tool_calls(tool_records)
+        if action is None:
+            return None
+
+        return action, model_part
+    except Exception:
+        logger.exception("Error in plan_task_blind")
         return None
 
 
 def plan_task_blind_first_step(
     user_command: str,
-    history: Optional[List] = None,
+    history: Optional[ConversationHistory] = None,
     current_workspace: str = "user",
     agent_desktop_available: bool = False,
 ) -> Optional[tuple[Dict[str, Any], Any]]:
@@ -549,38 +404,38 @@ YOUR ONLY JOB ON THIS STEP:
 
 WORKSPACE RULES:
 - Default to the agent desktop when the task does NOT require the user's live desktop and the user did not explicitly request the user desktop.
-- Examples for agent desktop: CLI checks (e.g., winget), installs, downloads, background tasks, browsing, long-running tasks.
+- Examples for agent desktop: installs, downloads, background tasks, browsing, long-running tasks.
 - Use the user desktop for tasks tied to the user's active apps or when they must see or interact with the result directly.
 - If the user explicitly mentions a desktop/workspace, follow it.
 - If the task is conversational or informational (greeting, small talk, "who are you", "what can you do", help questions, general facts) and can be answered with a `reply` without any UI action, keep the user desktop.
 
-RESPONSE FORMAT:
-{{
-    "action_type": "switch_workspace",
-    "params": {{ "workspace": "user"|"agent" }},
-    "reasoning": "Brief reason for workspace choice.",
-    "needs_vision": false,
-    "task_complete": false,
-    "skip_verification": true
-}}
+FUNCTION CALLING:
+- Use the tool `emit_action` to return your decision.
+- Do NOT output JSON text directly.
+- The action_type must be "switch_workspace".
 """
+    parts = [{"text": prompt_text}]
 
-    contents = [types.Part(text=prompt_text)]
-    contents_to_send = history[-10:] if history else []
-    contents_to_send.append({"role": "user", "parts": contents})
+    history_manager = history if isinstance(history, ConversationHistory) else ConversationHistory()
+    history_manager.add_user_message(parts)
+
+    tool_registry = create_planning_registry()
 
     try:
-        response = client.models.generate_content(
-            model=model,
-            contents=contents_to_send,
-            config={
-                "response_mime_type": "application/json",
-                "response_json_schema": PlannedAction.model_json_schema(),
-            },
+        response, tool_records = get_gemini_client().generate_with_tools(
+            contents=history_manager.get_messages_for_api(),
+            tool_registry=tool_registry,
+            response_schema=None,
         )
-        model_part = response.candidates[0].content
-        action_dict = PlannedAction.model_validate_json(response.text).model_dump()
-        return action_dict, model_part
-    except Exception as e:
-        print(f"Error in plan_task_blind_first_step: {e}")
+        model_part = response.candidates[0].content if response.candidates else None
+        if model_part:
+            history_manager.add_model_response(model_part.parts)
+
+        action = get_action_from_tool_calls(tool_records)
+        if action is None:
+            return None
+
+        return action, model_part
+    except Exception:
+        logger.exception("Error in plan_task_blind_first_step")
         return None

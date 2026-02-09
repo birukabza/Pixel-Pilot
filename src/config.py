@@ -1,10 +1,13 @@
 import os
 import re
+import logging
 from pathlib import Path
 from enum import Enum
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 class OperationMode(Enum):
@@ -65,7 +68,6 @@ class Config:
     VERIFICATION_MIN_CONFIDENCE = 0.7
     VERIFICATION_DELAY = 1.5
 
-    USE_GUI_MODE = True
     CHAT_WINDOW_WIDTH = 800
     CHAT_WINDOW_HEIGHT = 300
     GUI_TRANSPARENCY_LEVEL = 0.8
@@ -118,7 +120,9 @@ class Config:
         elif mode_str == "auto":
             return OperationMode.AUTO
         else:
-            print(f"Unknown mode '{mode_str}', using default: {cls.DEFAULT_MODE.value}")
+            logger.warning(
+                "Unknown mode '%s', using default: %s", mode_str, cls.DEFAULT_MODE.value
+            )
             return cls.DEFAULT_MODE
 
     @classmethod
@@ -175,7 +179,7 @@ class Config:
                 "Missing GEMINI_API_KEY! Set it in your .env file or environment variables."
             )
 
-        print("Configuration validated successfully")
-        print(f"   Model: {cls.GEMINI_MODEL}")
-        print(f"   Default Mode: {cls.DEFAULT_MODE.value}")
-        print(f"   Turbo Mode: {'ENABLED' if cls.TURBO_MODE else 'DISABLED'}")
+        logger.info("Configuration validated successfully")
+        logger.info("   Model: %s", cls.GEMINI_MODEL)
+        logger.info("   Default Mode: %s", cls.DEFAULT_MODE.value)
+        logger.info("   Turbo Mode: %s", "ENABLED" if cls.TURBO_MODE else "DISABLED")

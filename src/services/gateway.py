@@ -2,7 +2,11 @@ import asyncio
 import json
 import websockets
 import os
+import logging
 from agent.agent import AgentOrchestrator
+
+
+logger = logging.getLogger(__name__)
 
 
 class GatewayServer:
@@ -44,15 +48,16 @@ class GatewayServer:
                 response = {"result": result, "output": last_reasoning, "params": params}
                 await websocket.send(json.dumps(response))
             except Exception as e:
+                logger.exception("Gateway handler error: %s", e)
                 await websocket.send(json.dumps({"error": str(e)}))
 
     def start(self):
         async def run_server():
-            print(f"Gateway server running on ws://{self.host}:{self.port}")
+            logger.info("Gateway server running on ws://%s:%s", self.host, self.port)
             async with websockets.serve(self.handler, self.host, self.port):
                 await asyncio.Future()  # Run forever
 
         try:
             asyncio.run(run_server())
         except Exception as e:
-            print(f"Gateway server failed to start: {e}")
+            logger.exception("Gateway server failed to start: %s", e)

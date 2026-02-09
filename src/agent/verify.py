@@ -1,10 +1,15 @@
+import io
 import json
+import logging
 from typing import Any, Dict, List, Optional
-from PIL import Image
-from agent.brain import client, model
-from pydantic import BaseModel, Field
-from google import genai
+
 from google.genai import types
+from PIL import Image
+from pydantic import BaseModel, Field
+
+from agent.brain import get_gemini_client
+
+logger = logging.getLogger(__name__)
 
 
 def verify_task_completion(
@@ -40,8 +45,8 @@ def verify_task_completion(
     try:
         clean_image = Image.open(original_path)
         annotated_image = Image.open(debug_path)
-    except Exception as e:
-        print(f"Error loading images for verification: {e}")
+    except Exception:
+        logger.exception("Error loading images for verification")
         return None
 
     class VerificationResult(BaseModel):
@@ -96,23 +101,31 @@ RESPONSE FORMAT:
 Return a JSON object satisfying the VerificationResult schema.
 """
 
-    contents = [prompt_text, clean_image, annotated_image]
+    def _image_to_part(img: Image.Image) -> types.Part:
+        img_byte_arr = io.BytesIO()
+        img.save(img_byte_arr, format="PNG")
+        return types.Part.from_bytes(
+            data=img_byte_arr.getvalue(),
+            mime_type="image/png",
+        )
+
+    parts = [
+        {"text": prompt_text},
+        _image_to_part(clean_image),
+        _image_to_part(annotated_image),
+    ]
     if reference_sheet:
-        contents.append(reference_sheet)
+        parts.append(_image_to_part(reference_sheet))
 
     try:
-        response = client.models.generate_content(
-            model=model,
-            contents=contents,
-            config={
-                "response_mime_type": "application/json",
-                "response_json_schema": VerificationResult.model_json_schema(),
-            },
+        response = get_gemini_client().generate_structured(
+            contents=[{"role": "user", "parts": parts}],
+            response_schema=VerificationResult.model_json_schema(),
         )
 
         result_obj = VerificationResult.model_validate_json(response.text)
         return result_obj.model_dump()
 
-    except Exception as e:
-        print(f"Error during verification: {e}")
+    except Exception:
+        logger.exception("Error during verification")
         return None

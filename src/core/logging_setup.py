@@ -142,9 +142,9 @@ class GuiNoiseFilter(logging.Filter):
 
         low = str(msg).lower()
 
-        # Always show errors.
+        # Keep internal errors out of the GUI; they remain in file logs.
         if record.levelno >= logging.ERROR:
-            return True
+            return getattr(record, "name", "").startswith("pixelpilot.agent")
 
         # Hide internal mode/vision plumbing from the GUI.
         if any(s in low for s in self._HIDE_INTERNAL_SUBSTRINGS):

@@ -2,14 +2,17 @@
 Interactive Guidance Mode - Step-by-step tutorial system.
 """
 
+import io
 import json
 import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
+
+from google.genai import types
 from PIL import Image
 from pydantic import BaseModel, Field
 
-from agent.brain import get_model
+from agent.brain import get_gemini_client
 from agent.guidance_prompts import (
     INSTRUCTION_PROMPT,
     CLARIFICATION_PROMPT,
@@ -57,7 +60,7 @@ class GuidanceSession:
         
         Args:
             user_goal: What the user wants to accomplish
-            chat_window: GUI adapter for communication
+            chat_window: Adapter for user interaction
             capture_func: Function that captures screen and returns (elements, screenshot_path)
             stop_check_func: Function to check if user requested stop
         """
@@ -66,7 +69,7 @@ class GuidanceSession:
         self.capture_func = capture_func
         self.stop_check = stop_check_func
         
-        self.model = get_model()
+        self.client = get_gemini_client()
         self.completed_steps: List[str] = []
         self.current_instruction: Optional[str] = None
         self.step_count = 0
@@ -173,8 +176,6 @@ class GuidanceSession:
         
         if intent == "next":
             self.stop_check()
-            self.step_count += 1
-            
             elements, screenshot_path = self._capture_screen()
             
             if not elements and not screenshot_path:
@@ -185,6 +186,7 @@ class GuidanceSession:
             
             if goal_status and goal_status.complete and goal_status.confidence > 0.7:
                 self.completed_steps.append(self.current_instruction or "Previous step")
+                self.step_count += 1
                 self._send_message(f"🎉 {goal_status.reason}")
                 self._wait_for_user_ack("Done")
                 return "complete"
@@ -200,6 +202,8 @@ class GuidanceSession:
                     if verification.suggestion:
                         self._send_message(f"Hmm, {verification.observation}. {verification.suggestion}")
                         return "continue"
+
+            self.step_count += 1
             
             self._give_next_instruction()
             return "continue"
@@ -229,6 +233,26 @@ class GuidanceSession:
         except Exception as e:
             logger.exception("Screen capture failed")
             return [], None
+
+    def _image_to_part(self, img: Image.Image) -> types.Part:
+        img_byte_arr = io.BytesIO()
+        img.save(img_byte_arr, format="PNG")
+        return types.Part.from_bytes(
+            data=img_byte_arr.getvalue(),
+            mime_type="image/png",
+        )
+
+    def _build_contents(self, prompt: str, include_image: bool = True) -> list[dict]:
+        parts: list[Any] = [{"text": prompt}]
+
+        if include_image and self._last_screenshot_path:
+            try:
+                img = Image.open(self._last_screenshot_path)
+                parts.append(self._image_to_part(img))
+            except Exception:
+                pass
+
+        return [{"role": "user", "parts": parts}]
     
     def _generate_instruction(self, elements: List[Dict]) -> str:
         """Generate a conversational instruction based on screen state."""
@@ -242,15 +266,8 @@ class GuidanceSession:
         )
         
         try:
-            contents = [prompt]
-            if self._last_screenshot_path:
-                try:
-                    img = Image.open(self._last_screenshot_path)
-                    contents.append(img)
-                except Exception:
-                    pass
-            
-            response = self.model.generate_content(contents)
+            contents = self._build_contents(prompt)
+            response = self.client.generate(contents)
             instruction = response.text.strip()
             
             instruction = instruction.replace("**", "").strip()
@@ -277,7 +294,7 @@ class GuidanceSession:
         prompt = INTENT_PROMPT.format(user_message=message)
         
         try:
-            response = self.model.generate_content([prompt])
+            response = self.client.generate(self._build_contents(prompt, include_image=False))
             intent = response.text.strip().lower()
             
             if intent in ("next", "question", "problem", "stop", "repeat"):
@@ -298,15 +315,7 @@ class GuidanceSession:
         )
         
         try:
-            contents = [prompt]
-            if self._last_screenshot_path:
-                try:
-                    img = Image.open(self._last_screenshot_path)
-                    contents.append(img)
-                except Exception:
-                    pass
-            
-            response = self.model.generate_content(contents)
+            response = self.client.generate(self._build_contents(prompt))
             return response.text.strip()
             
         except Exception as e:
@@ -329,15 +338,7 @@ Current screen shows:
 Give them helpful troubleshooting advice or an alternative approach. Be encouraging and specific."""
         
         try:
-            contents = [prompt]
-            if self._last_screenshot_path:
-                try:
-                    img = Image.open(self._last_screenshot_path)
-                    contents.append(img)
-                except Exception:
-                    pass
-            
-            response = self.model.generate_content(contents)
+            response = self.client.generate(self._build_contents(prompt))
             return response.text.strip()
             
         except Exception:
@@ -363,20 +364,10 @@ Give them helpful troubleshooting advice or an alternative approach. Be encourag
         )
         
         try:
-            contents = [prompt]
-            if self._last_screenshot_path:
-                try:
-                    img = Image.open(self._last_screenshot_path)
-                    contents.append(img)
-                except Exception:
-                    pass
-            
-            response = self.model.generate_content(
-                contents,
-                config={
-                    "response_mime_type": "application/json",
-                    "response_schema": VerificationResult.model_json_schema(),
-                },
+            contents = self._build_contents(prompt)
+            response = self.client.generate_structured(
+                contents=contents,
+                response_schema=VerificationResult.model_json_schema(),
             )
             
             return VerificationResult.model_validate_json(response.text)
@@ -401,20 +392,10 @@ Give them helpful troubleshooting advice or an alternative approach. Be encourag
         )
         
         try:
-            contents = [prompt]
-            if self._last_screenshot_path:
-                try:
-                    img = Image.open(self._last_screenshot_path)
-                    contents.append(img)
-                except Exception:
-                    pass
-            
-            response = self.model.generate_content(
-                contents,
-                config={
-                    "response_mime_type": "application/json",
-                    "response_schema": GoalStatus.model_json_schema(),
-                },
+            contents = self._build_contents(prompt)
+            response = self.client.generate_structured(
+                contents=contents,
+                response_schema=GoalStatus.model_json_schema(),
             )
             
             return GoalStatus.model_validate_json(response.text)
@@ -430,14 +411,9 @@ Give them helpful troubleshooting advice or an alternative approach. Be encourag
             (message, should_proceed) - message is None if cancelled
         """
         if not self.chat_window:
-            # CLI fallback
-            try:
-                msg = input("Your response (or 'stop' to cancel): ").strip()
-                return msg, bool(msg)
-            except (EOFError, KeyboardInterrupt):
-                return None, False
+            return None, False
         
-        # GUI mode - wait for guidance response
+        # Wait for guidance response
         import threading
         
         payload = {
@@ -492,8 +468,6 @@ Give them helpful troubleshooting advice or an alternative approach. Be encourag
         """Send a message to the user."""
         if self.chat_window:
             self.chat_window.add_final_answer(message)
-        else:
-            print(f"\n🤖 {message}\n")
     
     def _log(self, message: str):
         """Log a message."""
