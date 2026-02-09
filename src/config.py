@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 from enum import Enum
 from dotenv import load_dotenv
@@ -17,10 +18,10 @@ class Config:
     GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
 
     DEFAULT_MODE = OperationMode(os.getenv("DEFAULT_MODE", OperationMode.AUTO.value))
-    VISION_MODE = os.getenv("VISION_MODE", "robo").strip().lower()
+    VISION_MODE = os.getenv("VISION_MODE", "ocr").strip().lower()
 
     USE_ROBOTICS_EYE = VISION_MODE in {"robo", "robotics", "er", "robotics-er"}
-    ROBOTICS_USE_BOUNDING_BOXES = False
+    ROBOTICS_USE_BOUNDING_BOXES = True
 
     LAZY_VISION = not USE_ROBOTICS_EYE
     INCREMENTAL_SCREENSHOTS = True
@@ -138,7 +139,7 @@ class Config:
                 return True
 
         for keyword in cls.REQUIRE_CONFIRMATION_FOR:
-            if keyword in action_lower:
+            if re.search(rf"\b{re.escape(keyword)}\b", action_lower):
                 return True
 
         return False
@@ -156,13 +157,13 @@ class Config:
             bool: True if confirmation is needed
         """
         if mode == OperationMode.GUIDE:
-            return True
+            return False
 
         if mode == OperationMode.SAFE:
-            return True
+            return cls.is_dangerous_action(action_description)
 
         if mode == OperationMode.AUTO:
-            return cls.is_dangerous_action(action_description)
+            return False
 
         return True
 

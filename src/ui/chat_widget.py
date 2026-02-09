@@ -54,7 +54,7 @@ class ChatWidget(QWidget):
         self._stream_pos: int = 0
         self._guidance_payload: dict | None = None
         self._guidance_active: bool = False
-        self._guidance_input_active: bool = False  # New: for conversational guidance
+        self._guidance_input_active: bool = False
         self._guidance_input_payload: dict | None = None
         self.set_view_mode("full")
         self.update_mode_tooltip()
@@ -151,8 +151,8 @@ class ChatWidget(QWidget):
         self.mode_combo.addItems(["GUIDANCE", "SAFE", "AUTO"])
         self.mode_combo.setObjectName("modeCombo")
         self.mode_combo.setItemData(0, "Step-by-step guidance with continuous human input.", Qt.ItemDataRole.ToolTipRole)
-        self.mode_combo.setItemData(1, "Balanced autonomy. Confirms potentially dangerous actions.", Qt.ItemDataRole.ToolTipRole)
-        self.mode_combo.setItemData(2, "Minimal interaction. PIXIE runs tasks end-to-end.", Qt.ItemDataRole.ToolTipRole)
+        self.mode_combo.setItemData(1, "Balanced autonomy. Confirms only potentially dangerous actions.", Qt.ItemDataRole.ToolTipRole)
+        self.mode_combo.setItemData(2, "Fully autonomous. No confirmation required.", Qt.ItemDataRole.ToolTipRole)
 
         self.vision_combo = QComboBox()
         self.vision_combo.addItems(["ROBO", "OCR"])

@@ -25,8 +25,8 @@ PixelPilot is a Windows desktop automation agent powered by **Gemini (Google Gen
 
 ### Operation Modes
 - **GUIDANCE**: Interactive, step-by-step tutorial mode. You do the actions while PixelPilot watches and helps.
-- **SAFE**: Confirms every action.
-- **AUTO**: Runs autonomously with extra caution on risky actions.
+- **SAFE**: Confirms only potentially dangerous actions (like delete, shutdown).
+- **AUTO**: Runs fully autonomously without requiring confirmation.
 - **Blind mode**: When vision is not needed, PixelPilot can plan and act without screenshots and switch back to vision when required.
 
 ### Agent Desktop and Sidecar

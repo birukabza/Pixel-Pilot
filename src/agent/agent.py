@@ -547,7 +547,10 @@ class AgentOrchestrator:
 
         if Config.should_ask_confirmation(self.mode, action["reasoning"]):
             if self.mode == OperationMode.GUIDE:
-                print(f"[GUIDE MODE] Suggestion: {action_type} with {params}")
+                suggestion = f"**Suggestion**: {action_type}\nReason: {action['reasoning']}\n\nPlease perform this action manually."
+                print(f"[GUIDE MODE] {suggestion}")
+                if self.chat_window:
+                    self.chat_window.add_system_message(suggestion)
                 return False
             elif self.mode == OperationMode.SAFE or Config.is_dangerous_action(action["reasoning"]):
                 if self.chat_window:
