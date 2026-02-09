@@ -193,8 +193,38 @@ class ScreenCapture:
                 )
 
             cv2.imwrite(output_path, img)
-        except ImportError:
-            pass
+        except Exception as e:
+            logger.debug(f"Could not create annotated image: {e}")
+
+    def _safe_get_local_elements(self, screenshot_path: str) -> List[Dict]:
+        """Run OCR+edge extraction safely and return an empty list on failure."""
+        try:
+            return self.local_eye.get_screen_elements(screenshot_path) or []
+        except Exception as e:
+            logger.error(f"OCR/edge extraction failed: {e}")
+            return []
+
+    def _safe_get_robotics_elements(
+        self, screenshot_path: str, task_context: Optional[str], current_step: Optional[str]
+    ) -> List[Dict]:
+        """Run Robotics-ER safely and return an empty list on failure."""
+        if not self.agent.robotics_eye:
+            return []
+        try:
+            if Config.ROBOTICS_USE_BOUNDING_BOXES:
+                return self.agent.robotics_eye.get_screen_elements_with_boxes(
+                    screenshot_path,
+                    max_elements=Config.ROBOTICS_MAX_ELEMENTS,
+                ) or []
+            return self.agent.robotics_eye.get_screen_elements(
+                screenshot_path,
+                max_elements=Config.ROBOTICS_MAX_ELEMENTS,
+                task_context=task_context,
+                current_step=current_step,
+            ) or []
+        except Exception as e:
+            logger.error(f"Robotics-ER extraction failed: {e}")
+            return []
 
     def capture_screen(
         self, force_robotics: bool = False
@@ -347,7 +377,7 @@ class ScreenCapture:
 
         if not Config.USE_ROBOTICS_EYE or Config.LAZY_VISION:
             self.log("Scanning UI elements with OCR + Edge Detection...")
-            elements = self.local_eye.get_screen_elements(Config.SCREENSHOT_PATH)
+            elements = self._safe_get_local_elements(Config.SCREENSHOT_PATH)
             vision_method = "OCR+Edge"
 
         needs_robotics = force_robotics
@@ -384,25 +414,21 @@ class ScreenCapture:
                     )
 
             if self.agent.robotics_eye:
-                if Config.ROBOTICS_USE_BOUNDING_BOXES:
-                    elements = self.agent.robotics_eye.get_screen_elements_with_boxes(
-                        Config.SCREENSHOT_PATH,
-                        max_elements=Config.ROBOTICS_MAX_ELEMENTS,
-                    )
+                robo_elements = self._safe_get_robotics_elements(
+                    Config.SCREENSHOT_PATH, task_context, current_step
+                )
+                if robo_elements:
+                    elements = robo_elements
+                    vision_method = "Gemini Robotics-ER"
                 else:
-                    elements = self.agent.robotics_eye.get_screen_elements(
-                        Config.SCREENSHOT_PATH,
-                        max_elements=Config.ROBOTICS_MAX_ELEMENTS,
-                        task_context=task_context,
-                        current_step=current_step,
-                    )
-                vision_method = "Gemini Robotics-ER"
+                    logger.warning("Robotics-ER returned no usable elements. Falling back to OCR.")
+                    if not elements:
+                        elements = self._safe_get_local_elements(Config.SCREENSHOT_PATH)
+                        vision_method = "OCR+Edge (Fallback)"
             else:
                 logger.warning("Robotics Eye requested but not initialized. Falling back to OCR.")
                 if not elements:
-                    elements = self.local_eye.get_screen_elements(
-                        Config.SCREENSHOT_PATH
-                    )
+                    elements = self._safe_get_local_elements(Config.SCREENSHOT_PATH)
                     vision_method = "OCR+Edge (Fallback)"
 
         self._create_annotated_image(
@@ -411,12 +437,15 @@ class ScreenCapture:
 
         reference_sheet = None
         if Config.ENABLE_REFERENCE_SHEET:
-            crops = self.local_eye.get_crops_for_context(
-                Config.SCREENSHOT_PATH, elements
-            )
-            reference_sheet = create_reference_sheet(crops)
-            if reference_sheet and Config.SAVE_SCREENSHOTS:
-                reference_sheet.save(Config.REF_PATH)
+            try:
+                crops = self.local_eye.get_crops_for_context(
+                    Config.SCREENSHOT_PATH, elements
+                )
+                reference_sheet = create_reference_sheet(crops)
+                if reference_sheet and Config.SAVE_SCREENSHOTS:
+                    reference_sheet.save(Config.REF_PATH)
+            except Exception as e:
+                logger.error(f"Reference sheet creation failed: {e}")
 
         self.log(f"Found {len(elements)} UI elements ({vision_method})")
         return elements, reference_sheet

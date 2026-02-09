@@ -199,9 +199,12 @@ class MinimalTaskbar(QWidget):
             logger.debug(f"Taskbar update error: {e}")
 
     def activate_window(self, hwnd):
-        user32 = ctypes.windll.user32
-        user32.SetForegroundWindow(hwnd)
-        user32.ShowWindow(hwnd, 5) # SW_SHOW
+        try:
+            user32 = ctypes.windll.user32
+            user32.SetForegroundWindow(hwnd)
+            user32.ShowWindow(hwnd, 5) # SW_SHOW
+        except Exception as e:
+            logger.debug(f"Failed to activate window {hwnd}: {e}")
 
 def main():
     # Helper to launch standalone on the desktop

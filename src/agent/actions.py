@@ -32,26 +32,38 @@ class ActionExecutor:
         """
         Dispatch method for executing actions.
         """
+        if not isinstance(action, dict):
+            logger.error(f"Invalid action payload type: {type(action).__name__}")
+            return False
+
         action_type = action.get("action_type")
-        params = action.get("params", {})
+        if isinstance(action_type, str):
+            action_type = action_type.strip()
+        params = action.get("params") or {}
+        if not isinstance(params, dict):
+            logger.error(f"Invalid params type for action '{action_type}': {type(params).__name__}")
+            params = {}
+        reasoning = str(action.get("reasoning") or "No reasoning provided")
+        if not isinstance(elements, list):
+            elements = []
 
         self.log(f"Executing action: {action_type}")
-        self.log(f"Reasoning: {action['reasoning']}")
+        self.log(f"Reasoning: {reasoning}")
 
         if action_type == "reply":
             return self._execute_reply(params)
 
-        if Config.should_ask_confirmation(self.agent.mode, action["reasoning"]):
+        if Config.should_ask_confirmation(self.agent.mode, reasoning):
             if self.agent.mode == OperationMode.GUIDE:
                 self.log(f"[GUIDE MODE] Suggestion: {action_type} with {params}")
                 return False
             elif self.agent.mode == OperationMode.SAFE or Config.is_dangerous_action(
-                action["reasoning"]
+                reasoning
             ):
                 if self.agent.chat_window:
                     confirm = self.agent.chat_window.ask_confirmation(
                         "Action Review",
-                        f"Action: {action_type}\nParams: {params}\n\nReason: {action['reasoning']}\n\nExecute this?",
+                        f"Action: {action_type}\nParams: {params}\n\nReason: {reasoning}\n\nExecute this?",
                     )
                 else:
                     confirm_str = input(" Execute this action? (y/n): ").strip().lower()
@@ -111,12 +123,22 @@ class ActionExecutor:
 
         result = skill.execute(method, args, desktop_manager=self.desktop_manager)
         self.log(f"{skill.name} Skill Result: {result}")
-        return True
+
+        if isinstance(result, str):
+            lowered = result.strip().lower()
+            if lowered.startswith(("error", "failed", "unknown", "no ")):
+                return False
+        return bool(result)
 
     def _execute_click(self, params: Dict, elements: List[Dict]) -> bool:
         element_id = params.get("element_id") or params.get("target_id")
         if element_id is None:
             logger.error(f"Missing element_id in click params. Received: {params}")
+            return False
+        try:
+            element_id = int(element_id)
+        except Exception:
+            logger.error(f"Invalid element_id '{element_id}' in click params.")
             return False
 
         target = next((el for el in elements if el["id"] == element_id), None)
@@ -143,19 +165,24 @@ class ActionExecutor:
         final_x = real_x * scale_x
         final_y = real_y * scale_y
 
-        self.log(
-            f"Clicking ID {element_id} ('{target['label']}') at ({final_x:.0f}, {final_y:.0f})"
-        )
+        label = target.get("label", "unknown")
+        self.log(f"Clicking ID {element_id} ('{label}') at ({final_x:.0f}, {final_y:.0f})")
 
         dm = self.desktop_manager
-        mouse.click_at(int(final_x), int(final_y), desktop_manager=dm)
+        clicked = mouse.click_at(int(final_x), int(final_y), desktop_manager=dm)
+        if clicked is False:
+            logger.error("Click operation reported failure.")
+            return False
 
         time.sleep(Config.WAIT_AFTER_CLICK)
         return True
 
     def _execute_type_text(self, params: Dict) -> bool:
         text = params.get("text")
-        if not text:
+        if text is None:
+            return False
+        text = str(text)
+        if text == "":
             return False
 
         dm = self.desktop_manager
@@ -169,6 +196,8 @@ class ActionExecutor:
         key = params.get("key")
         if not key:
             return False
+        if not isinstance(key, str):
+            return False
 
         dm = self.desktop_manager
         success = self.agent.keyboard.press_key(key, desktop_manager=dm)
@@ -179,6 +208,10 @@ class ActionExecutor:
         keys = params.get("keys")
         if not keys:
             return False
+        if isinstance(keys, str):
+            keys = [k.strip() for k in keys.split("+") if k.strip()]
+        if not isinstance(keys, (list, tuple)):
+            return False
 
         dm = self.desktop_manager
         success = self.agent.keyboard.key_combo(*keys, desktop_manager=dm)
@@ -187,6 +220,12 @@ class ActionExecutor:
 
     def _execute_wait(self, params: Dict) -> bool:
         seconds = params.get("seconds", 1.0)
+        try:
+            seconds = float(seconds)
+            if seconds < 0:
+                return False
+        except Exception:
+            return False
         self.log(f"Waiting for {seconds} seconds...")
         time.sleep(seconds)
         return True
@@ -198,10 +237,19 @@ class ActionExecutor:
 
         self.log(f"Searching web for: {query}")
         dm = self.desktop_manager
-        return self.agent.browser_skill.search(query, desktop_manager=dm)
+        result = self.agent.browser_skill.search(query, desktop_manager=dm)
+        if isinstance(result, str):
+            lowered = result.strip().lower()
+            if lowered.startswith(("error", "failed", "no ")):
+                self.log(result)
+                return False
+        return bool(result)
 
     def _execute_open_app(self, params: Dict) -> bool:
         app_name = params.get("app_name")
+        if not app_name:
+            return False
+        app_name = str(app_name).strip()
         if not app_name:
             return False
 
@@ -212,14 +260,14 @@ class ActionExecutor:
             time.sleep(Config.APP_LAUNCH_WAIT)
             return True
 
-        self.agent.keyboard.press_key("win", desktop_manager=dm)
+        start_ok = self.agent.keyboard.press_key("win", desktop_manager=dm)
         time.sleep(1.0)
-        self.agent.keyboard.type_text(app_name, desktop_manager=dm)
+        type_ok = self.agent.keyboard.type_text(app_name, desktop_manager=dm)
         time.sleep(0.8)
-        self.agent.keyboard.press_key("enter", desktop_manager=dm)
+        enter_ok = self.agent.keyboard.press_key("enter", desktop_manager=dm)
 
         time.sleep(Config.APP_LAUNCH_WAIT)
-        return True
+        return bool(start_ok and type_ok and enter_ok)
 
     def _execute_magnify(self, params: Dict, elements: List[Dict]) -> bool:
         element_id = params.get("element_id")
