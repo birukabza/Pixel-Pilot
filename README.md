@@ -4,7 +4,25 @@
 
 **Pilot Your Pixels.**
 
-PixelPilot is a high-performance Windows desktop automation agent powered by **Gemini (Google GenAI SDK)** and advanced computer vision. It transforms natural language commands into precise mouse and keyboard actions, orchestrating a hybrid pipeline of vision-based and blind control across multiple isolated desktop workspaces.
+PixelPilot is a Windows desktop AI agent that executes real computer tasks from natural language, using Gemini 3 + computer vision + native system control.
+
+## Hackathon Note (Gemini 3)
+
+We initially planned to integrate Gemini Live API for real-time conversational control. In our current build stack, Live support was available only up to Gemini 2.5, so to satisfy the hackathon Gemini 3 requirement we implemented a **native Gemini 3 request/response pipeline** (Google GenAI SDK) across planning, reasoning, and verification.
+
+- Current implementation: Gemini 3 (request-based) in the production task loop.
+- Planned upgrade path: add Gemini Live once Gemini 3 Live support is available for our integration path.
+
+## Problem and Impact
+
+Desktop automation is still fragile for real users: scripts break, app UIs change, and elevation prompts interrupt flows. PixelPilot targets this gap with a robust hybrid agent that can:
+
+- Use vision when the screen matters.
+- Use blind/system actions when vision is unnecessary (faster + cheaper).
+- Handle Secure Desktop/UAC transitions instead of failing hard.
+- Keep risky web and automation tasks in an isolated desktop.
+
+This is useful for operations teams, power users, accessibility workflows, QA/testing flows, and repetitive office tasks.
 
 ## Architecture
 
@@ -12,176 +30,232 @@ PixelPilot is a high-performance Windows desktop automation agent powered by **G
 
 > [View Detailed Architecture Diagram](src/logos/System-Architecture_Detailed.png)
 
-## Key Features
+## Key Technical Features
 
-### 🚀 Hybrid Planning & Execution
-- **Turbo Mode (Enabled by Default)**: Optimizes planning by batching multiple stable actions into a single execution sequence.
-- **Blind Mode**: The agent can plan and act without screenshots (using OS skills and hotkeys) when visual context is not required.
-- **Interactive-First Planning**: Every task starts with a "Blind Step 1" to intelligently decide on the workspace (User vs Agent) before triggering vision.
-- **Task Verification & Deferred Replies**: Performs optional screen analysis to confirm success. Replies are buffered and only displayed after verification is complete.
+### Hybrid Planning + Execution
+- **Blind-first planning**: every task starts with a blind step to choose `user` vs `agent` workspace before vision.
+- **Turbo sequences**: Gemini can batch stable sub-actions into one sequence (`action_sequence`) for faster execution.
+- **Deferred final replies**: completion responses are buffered until verification passes.
 
-### 👁️ Advanced Vision System
-- **Lazy Vision Pipeline**: Implements a tiered approach—tries lightweight local OCR (EasyOCR + OpenCV) (default) first and **Gemini Robotics-ER** for complex semantic understanding or unknown icons. 
-- **Incremental Screenshots**: Only captures and analyzes new screenshots when the screen state has changed, significantly reducing API latency.
+### Vision Stack
+- **Lazy vision pipeline**: local OCR + CV first (EasyOCR/OpenCV), Robotics-ER fallback for sparse/ambiguous UI context.
+- **Incremental screenshots**: screen hash tracking avoids unnecessary recapture/reanalysis when state is unchanged.
+- **Reference sheet generation**: cropped element context is assembled for stronger multimodal reasoning.
 
-### 🖥️ Desktop Orchestration
-- **Agent Desktop (Isolated Workspaces)**: Seamlessly switch between the live `user` desktop and an isolated `agent` desktop.
-- **Situational Logic**: Automatically favors the Agent Desktop for generic web tasks (browsing, research, Gmail, CLI) while reserving the User Desktop for local file interaction.
-- **Sidecar Preview**: A high-performance, live preview of the Agent Desktop.
+### Reliability + Safety
+- **Secure Desktop/UAC handling**: SYSTEM orchestrator + secure desktop agent for UAC prompt capture and ALLOW/DENY reasoning.
+- **Loop detection + recovery**: repeated action/screen patterns trigger alternatives and clarification flow.
+- **Mode-aware confirmations**:
+  - `GUIDANCE`: interactive tutorial mode.
+  - `SAFE`: asks confirmation for dangerous operations.
+  - `AUTO`: autonomous execution.
 
-### 🛡️ System Integration & Security
-- **UAC / Secure Desktop Support**: A dedicated SYSTEM service (UAC Orchestrator) allows the agent to see and interact with Secure Desktop prompts.
-- **Loop Detection & Reflexion**: Detects repeated actions using perceptual hashing and uses "reflexion" logic to suggest alternatives or ask for clarification.
-- **Task Verification**: Performs optional post-task screen analysis to confirm the user's goal was actually achieved.
+### Workspace Isolation
+- **Agent Desktop**: dedicated hidden desktop with custom minimal shell.
+- **Sidecar preview**: real-time capture preview when working in agent workspace.
+- **Process tracking**: spawned processes on agent desktop are tracked and cleaned up on shutdown.
 
-### Skills and Tooling
-- **Media / Browser / System / Timer skills**: Uses OS APIs where possible instead of UI driving.
-- **Smart App Indexer**: Uses Start Menu shortcuts, running processes, and registry to find apps.
-- **Voice input**: Mic button uses SpeechRecognition with an audio level visualizer.
-- **Global hotkeys**: System-wide hotkeys work even when the overlay is click-through.
+### Skills + OS Integration
+- **Skills**: `media`, `browser`, `system`, `timer`.
+- **Smart app indexing**: Start Menu + running processes + registry + modern apps for robust `open_app`.
+- **Global hotkeys**: work even when overlay is click-through/unfocused.
+- **Voice input**: microphone STT with live level visualization.
 
-## Operation Modes
-- **GUIDANCE**: Interactive, step-by-step tutorial mode. You do the actions while PixelPilot watches and helps.
-- **SAFE**: Confirms only potentially dangerous actions (like delete, shutdown).
-- **AUTO**: Runs fully autonomously without requiring confirmation.
-- **Blind mode**: When vision is not needed, PixelPilot can plan and act without screenshots and switch back to vision when required.
+## Gemini 3: Where It Is Used
+
+Gemini 3 is used directly in the decision loop:
+
+- **Action planning**: [src/agent/brain.py](src/agent/brain.py)
+- **Task completion verification**: [src/agent/verify.py](src/agent/verify.py)
+- **Guidance/clarification reasoning**: [src/agent/guidance.py](src/agent/guidance.py), [src/agent/clarification.py](src/agent/clarification.py)
+
+Transport layers:
+- **Direct API mode** (`GEMINI_API_KEY` set): [src/backend_client.py](src/backend_client.py) calls Gemini directly.
+- **Backend proxy mode** (no local API key): authenticated FastAPI backend relays `/v1/generate`.
+
+## Technical Stack
+
+- **Desktop app**: Python, PySide6
+- **Automation/control**: pyautogui, keyboard, ctypes/Win32 APIs
+- **Vision**: EasyOCR, OpenCV, PIL, Gemini Robotics-ER
+- **AI SDK**: google-genai
+- **Backend (optional)**: FastAPI, MongoDB (auth/users), Redis (rate limit), JWT
+- **Web docs/portal (optional)**: React + TypeScript + Vite (`web/`)
 
 ## Quick Start
 
-### 1. Installation
-
-Run the installer to set up the Python environment and (optionally) the UAC orchestrator and launcher tasks.
+### 1. Install
 
 ```bash
 python install.py
 ```
 
-What it does:
-- Creates a `venv` and installs `requirements.txt`.
-- Compiles the UAC helper executables from [src/uac/orchestrator.py](src/uac/orchestrator.py) and [src/uac/agent.py](src/uac/agent.py).
+Installer actions:
+- Creates `venv` and installs `requirements.txt`
+- Prefetches OCR models
+- Prebuilds app index cache
+- Compiles UAC helpers:
+  - [src/uac/orchestrator.py](src/uac/orchestrator.py)
+  - [src/uac/agent.py](src/uac/agent.py)
 - Creates scheduled tasks:
-    - `PixelPilotUACOrchestrator` (runs as SYSTEM on startup)
-    - `PixelPilotApp` (launcher task; the Desktop shortcut runs this task)
-- Creates a Desktop shortcut that runs `schtasks /RUN /TN "PixelPilotApp"`.
+  - `PixelPilotUACOrchestrator` (SYSTEM, startup)
+  - `PixelPilotApp` (launcher)
+- Creates desktop shortcut (`Pixel Pilot.lnk`)
 
-Optional (deps only, no scheduled tasks or shortcut):
+Optional (dependencies only):
 
 ```bash
 python install.py --no-tasks
 ```
 
-### 2. Configuration
+### 2. Configure
 
-Create a `.env` file in the repository root (next to [install.py](install.py)):
+Create `.env` in repo root:
 
 ```env
+# Gemini
 GEMINI_API_KEY=your_api_key_here
 GEMINI_MODEL=gemini-3-flash-preview
 
-# Default UI mode: guide | safe | auto
+# Mode defaults: guide | safe | auto
 DEFAULT_MODE=auto
-
-# Runtime override (if set, overrides DEFAULT_MODE)
 AGENT_MODE=auto
 
-# Vision mode: robo | ocr
-VISION_MODE=robo
+# Vision mode: ocr | robo
+VISION_MODE=ocr
 
-# Optional: WebSocket gateway auth token
+# backend override (already set in the codebase)
+BACKEND_URL=your_backend_url
+
+# Optional WebSocket gateway token
 PIXELPILOT_GATEWAY_TOKEN=pixelpilot-secret
 ```
 
-Tip: you can start from [env.example](env.example).
-
-Notes:
-- `GEMINI_API_KEY`: If set, PixelPilot connects directly to Gemini (bypassing the backend proxy). No login required.
-- `DEFAULT_MODE`: Selects the initial UI mode.
-- `AGENT_MODE`: Overrides `DEFAULT_MODE` when present.
-- `VISION_MODE`: `robo` (Gemini Robotics-ER) or `ocr` (local OCR + CV).
+You can start from [env.example](env.example).
 
 ### 3. Run
 
-**Method 1: Desktop Shortcut (Recommended)**
-Double-click the PixelPilot shortcut. This launches the agent with the permissions needed to communicate with the UAC orchestrator.
+Recommended: use the desktop shortcut.
 
-**Method 2: Command Line**
+CLI alternative:
 
 ```bash
 .\venv\Scripts\python.exe .\src\main.py
 ```
 
-Notes:
-- PixelPilot is GUI-first (PySide6). You can change Mode and Vision from the dropdowns.
-- On Windows, PixelPilot tries to relaunch with Administrator privileges. If you decline, some automation is limited.
-- Logs are written to `logs/pixelpilot.log` (and launcher logs to `logs/app_launch.log`).
+At startup:
+- If `GEMINI_API_KEY` exists: direct Gemini mode (no login required).
+- If not: login/register dialog uses backend auth, or user can paste API key in the dialog.
 
-### Hotkeys (system-wide)
-- `Ctrl+Shift+Z` - Toggle click-through (overlay interactive vs click-through)
-- `Ctrl+Shift+X` - Stop current request
-- `Ctrl+Shift+Q` - Quit PixelPilot
+Logs:
+- `logs/pixelpilot.log`
+- `logs/app_launch.log`
 
-## Architecture
+## Optional: Run the Backend Locally
 
-PixelPilot uses a modular, multi-process architecture to bridge userland automation and Secure Desktop.
+Backend files live in `backend/`.
 
-1. **Modular Agent Core (`src/agent/`)**
-     - **Core Orchestrator ([core.py](src/agent/core.py))**: Manages the main task loop, workspace switching, and state synchronization.
-     - **Action Executor ([actions.py](src/agent/actions.py))**: Decoupled execution logic for browser skills, app launching, and UI interaction.
-     - **Screen Capture ([capture.py](src/agent/capture.py))**: High-performance screenshot pipeline with perceptual hashing for change detection.
-     - **Prompts ([prompts.py](src/agent/prompts.py))**: Centralized prompt engineering for all agent modes.
+1. Install backend deps:
+```bash
+cd backend
+pip install -r requirements.txt
+```
 
-2. **Main Application ([src/main.py](src/main.py))**
-     - Provides the PySide6 UI and routes agent output into the GUI.
-     - Handles secure session management and API key clearing on logout.
+2. Create `backend/.env`:
+```env
+GEMINI_API_KEY=your_backend_key
+MONGODB_URI=your_mongodb_uri
+REDIS_URI=redis://localhost:6379
+JWT_SECRET=change_me
+```
 
-3. **UAC Orchestrator ([src/uac/orchestrator.py](src/uac/orchestrator.py))**
-     - Runs as SYSTEM via Task Scheduler on boot.
-     - Watches for triggers and launches the UAC Agent in the WinLogon Secure Desktop session.
+3. Start backend:
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
 
-4. **UAC Agent ([src/uac/agent.py](src/uac/agent.py))**
-     - Captures Secure Desktop snapshots and interacts with elevated prompts.
+4. Point desktop app to it:
+```env
+BACKEND_URL=http://localhost:8000
+```
 
-5. **Agent Desktop**
-     - Isolated desktop sandbox via [src/desktop/desktop_manager.py](src/desktop/desktop_manager.py).
-     - Minimal taskbar shell for the agent session plus a sidecar preview in the main UI.
+Backend API summary:
+- `POST /auth/register`
+- `POST /auth/login`
+- `GET /auth/me`
+- `POST /v1/generate` (JWT-protected, rate limited)
+- `GET /health`
 
-## Optional WebSocket Gateway
+## Optional: WebSocket Gateway
 
-There is a simple gateway server in [src/services/gateway.py](src/services/gateway.py) that accepts JSON commands over WebSocket and runs them through the agent. It is not started by default; import and run it from your own entry point if needed.
+Gateway implementation: [src/services/gateway.py](src/services/gateway.py)
+
+Expected message shape:
+
+```json
+{
+  "auth": "pixelpilot-secret",
+  "command": "Open calculator and compute 25*34",
+  "params": {
+    "mode": "auto"
+  }
+}
+```
+
+## Hotkeys (System-Wide)
+
+- `Ctrl+Shift+Z`: Toggle click-through
+- `Ctrl+Shift+X`: Stop current request
+- `Ctrl+Shift+Q`: Quit app
+
+
+## System Capabilities
+
+- Gemini 3 planning and execution: the agent plans with typed JSON outputs, then executes concrete actions (`click`, `type_text`, `press_key`, `key_combo`, `open_app`, `call_skill`, `sequence`).
+- OCR mode (`VISION_MODE=ocr`): runs local EasyOCR + OpenCV to detect on-screen text and icon candidates with low latency.
+- ROBO mode (`VISION_MODE=robo`): uses Gemini Robotics-ER for semantic UI understanding and robust element localization in harder/ambiguous screens.
+- Lazy vision routing: starts with local OCR/CV, then escalates to ROBO when context is sparse or uncertain; screenshot hash checks avoid redundant analysis.
+- Workspace-aware automation: starts with blind-first workspace selection, then runs tasks on `user` or isolated `agent` desktop depending on context.
+- Reliability and safety: includes UAC secure desktop handling, loop detection/recovery, clarification prompts, and final visual verification before completion.
+- User control model: supports `GUIDANCE`, `SAFE`, and `AUTO` modes for different autonomy/safety preferences.
+- Demo readiness: includes architecture diagrams, explicit Gemini 3 integration points, global hotkeys, gateway payload format, and end-to-end task examples.
 
 ## Usage Examples
-
-Natural language commands:
-- "Open Calculator and calculate 25 * 34"
-- "Find Spotify and play the next song"
-- "Open Device Manager as admin" (triggers UAC orchestrator)
+- "Quick use: Open Calculator and calculate 8125 * 34"
+- "Casual use: Find Spotify and play the next song"
+- "Maintainance use: Open Device Manager as admin and fix my wifi driver"
 - "Search Google for Python tutorials and open the first link"
+- "Emergency support mode: open WhatsApp Desktop, send 'I need immediate help, please call me now' to my emergency contact, then share my current location from Google Maps."
+- "Critical incident response: open Event Viewer and Windows Security, capture the latest critical errors, and draft a plain-English incident summary for my IT team."
+- "Hospital handoff prep: open my active patient handoff note, format it into SBAR structure, and prepare a ready-to-send message for the next shift."
+- "Accessibility rescue: I cannot use the mouse right now; open my telehealth portal, navigate to today's appointment page, and stop only when login input is required."
+- "Family safety check: open camera feed in browser, save the latest screenshot evidence, and send a timestamped summary to the family group chat."
+- "Fraud containment workflow: lock workstation, open bank support page on Agent Desktop, and prepare a step-by-step checklist to freeze cards and reset account access."
 
-PixelPilot runs as a standard desktop GUI app; close the window to exit.
 
 ## Uninstall
-
-Run the uninstaller (removes scheduled tasks, shortcut, venv, dist, logs, media, and cache):
 
 ```bash
 python uninstall.py
 ```
 
-Optional flags:
-- `--no-tasks` to keep scheduled tasks and the desktop shortcut.
-- `--keep-venv` to keep the venv directory.
-- `--keep-dist` to keep the dist directory.
-- `--keep-logs` to keep logs.
-- `--keep-media` to keep media outputs.
-- `--keep-cache` to keep the app index cache.
+Useful flags:
+- `--no-tasks`
+- `--keep-venv`
+- `--keep-dist`
+- `--keep-build`
+- `--keep-logs`
+- `--keep-media`
+- `--keep-cache`
 
 ## Troubleshooting
 
-- If the app opens and closes immediately, verify `.env` has `GEMINI_API_KEY`.
+- App opens then exits: confirm valid `GEMINI_API_KEY` or working backend login.
+- Backend errors: verify `BACKEND_URL` and backend `/health`.
+- UAC flow not working:
+  - Re-run `python install.py` as Administrator.
+  - Confirm `PixelPilotUACOrchestrator` task exists and is running.
 - Check logs in `logs/pixelpilot.log`.
-- If UAC handling does not work:
-    - Re-run `python install.py` as Administrator to recreate scheduled tasks.
-    - Verify the `PixelPilotUACOrchestrator` scheduled task is running.
 
 ---
 
