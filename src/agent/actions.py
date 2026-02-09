@@ -47,6 +47,9 @@ class ActionExecutor:
         if not isinstance(elements, list):
             elements = []
 
+        if action_type in {"send_message", "message", "final_answer"}:
+            action_type = "reply"
+
         self.log(f"Executing action: {action_type}")
         self.log(f"Reasoning: {reasoning}")
 
@@ -286,6 +289,9 @@ class ActionExecutor:
 
     def _execute_reply(self, params: Dict) -> bool:
         text = params.get("text")
+        if not text:
+            # Compatibility with occasional alternative param keys.
+            text = params.get("message") or params.get("content")
         if not text:
             return False
 

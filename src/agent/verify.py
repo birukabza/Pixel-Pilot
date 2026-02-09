@@ -42,16 +42,27 @@ def verify_task_completion(
             description="Suggestion for the next step if task is not complete, or null/None if complete"
         )
 
-    elements_str = "\n".join(
-        [f"ID {el['id']}: {el['type']} '{el['label']}'" for el in screen_elements[:100]]
-    )
+    safe_elements = screen_elements if isinstance(screen_elements, list) else []
+    safe_history = task_history if isinstance(task_history, list) else []
 
-    history_str = "\n".join(
-        [
-            f"Step {i + 1}: {action['action_type']} - {action['reasoning']}"
-            for i, action in enumerate(task_history)
-        ]
-    )
+    elements_lines = []
+    for el in safe_elements[:100]:
+        if not isinstance(el, dict):
+            continue
+        eid = el.get("id", "?")
+        etype = el.get("type", "unknown")
+        label = el.get("label", "")
+        elements_lines.append(f"ID {eid}: {etype} '{label}'")
+    elements_str = "\n".join(elements_lines)
+
+    history_lines = []
+    for i, action in enumerate(safe_history):
+        if not isinstance(action, dict):
+            continue
+        action_type = action.get("action_type", "unknown")
+        reasoning = action.get("reasoning", "")
+        history_lines.append(f"Step {i + 1}: {action_type} - {reasoning}")
+    history_str = "\n".join(history_lines)
 
     prompt_text = VERIFY_TASK_COMPLETION_PROMPT.format(
         user_command=user_command,
