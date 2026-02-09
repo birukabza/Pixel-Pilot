@@ -199,7 +199,7 @@ class LoginDialog(QDialog):
                 background: rgba(255, 107, 107, 0.3);
                 color: #ff4c4c;
             }
-            
+
             QLabel#title {
                 color: #cfe9ff;
                 font: bold 22px 'Segoe UI', 'Inter', sans-serif;

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Tuple
 import redis.asyncio as redis
 
-DAILY_LIMIT = 5
+DAILY_LIMIT = 200
 
 
 def _get_rate_limit_key(user_id: str) -> str:

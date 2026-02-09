@@ -4,6 +4,7 @@ import json
 import os
 from io import BytesIO
 from typing import List, Dict, Any, Optional
+from PIL import Image
 from config import Config
 
 
@@ -11,6 +12,21 @@ class RateLimitError(Exception):
     """Raised when API rate limit is exceeded."""
 
     pass
+
+
+class GenerationResponse:
+    """Mimics the google.genai.types.GenerateContentResponse object."""
+
+    def __init__(self, data: Dict[str, Any]):
+        self.text = data.get("text", "")
+        self.usage_metadata = data.get("usage_metadata")
+        self._data = data
+
+    def __getitem__(self, key):
+        return self._data[key]
+
+    def get(self, key, default=None):
+        return self._data.get(key, default)
 
 
 class BackendClient:
@@ -67,7 +83,7 @@ class BackendClient:
                     )
 
                 response.raise_for_status()
-                return response.json()  # Expect {"text": "..."}
+                return GenerationResponse(response.json())
 
             except requests.exceptions.RequestException as e:
                 # If it's not a 429 (handled above) or if we ran out of retries for 429
@@ -143,6 +159,14 @@ class BackendClient:
 
         if isinstance(part, str):
             return {"text": part}
+
+        if isinstance(part, Image.Image):
+            buffered = BytesIO()
+            part.save(buffered, format="PNG")
+            return {
+                "data": base64.b64encode(buffered.getvalue()).decode("utf-8"),
+                "mime_type": "image/png",
+            }
 
         # If it has 'text' attr:
         if hasattr(part, "text") and part.text:

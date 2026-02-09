@@ -22,7 +22,6 @@ class AuthManager:
         # Token storage path
         self._storage_dir = Path.home() / ".tolin"
         self._storage_file = self._storage_dir / "auth.json"
-
         # Load existing token if available
         self._load_token()
 
