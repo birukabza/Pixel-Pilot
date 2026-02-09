@@ -156,13 +156,13 @@ class Config:
             bool: True if confirmation is needed
         """
         if mode == OperationMode.GUIDE:
-            return True
+            return False
 
         if mode == OperationMode.SAFE:
-            return True
+            return cls.is_dangerous_action(action_description)
 
         if mode == OperationMode.AUTO:
-            return cls.is_dangerous_action(action_description)
+            return False
 
         return True
 
