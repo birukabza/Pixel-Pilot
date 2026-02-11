@@ -1,4 +1,5 @@
 import { motion, useScroll, useTransform } from 'framer-motion';
+import { Link, useLocation } from 'react-router-dom';
 import { Logo } from './Logo';
 import { Magnetic } from './Magnetic';
 import './Navbar.css';
@@ -7,6 +8,8 @@ export const Navbar = () => {
     const { scrollY } = useScroll();
     const opacity = useTransform(scrollY, [0, 100], [0, 1]);
     const y = useTransform(scrollY, [0, 100], [-100, 0]);
+    const location = useLocation();
+    const isHome = location.pathname === '/';
 
     const scrollToSection = (id: string) => {
         document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
@@ -28,20 +31,33 @@ export const Navbar = () => {
                 style={{ opacity, y }}
             >
                 <div className="navbar-inner">
-                    <Magnetic>
-                        <button onClick={() => scrollToSection('features')} className="nav-link">Capabilities</button>
-                    </Magnetic>
-                    <Magnetic>
-                        <button onClick={() => scrollToSection('quickstart')} className="nav-link">Install</button>
-                    </Magnetic>
+                    {isHome ? (
+                        <>
+                            <Magnetic>
+                                <button onClick={() => scrollToSection('features')} className="nav-link">Capabilities</button>
+                            </Magnetic>
+                            <Magnetic>
+                                <button onClick={() => scrollToSection('quickstart')} className="nav-link">Install</button>
+                            </Magnetic>
+                        </>
+                    ) : (
+                        <Magnetic>
+                            <Link to="/" className="nav-link">Home</Link>
+                        </Magnetic>
+                    )}
                     <div className="nav-separator" />
                     <Logo size={24} />
                     <div className="nav-separator" />
+                    {isHome && (
+                        <Magnetic>
+                            <button onClick={() => scrollToSection('hotkeys')} className="nav-link">Controls</button>
+                        </Magnetic>
+                    )}
                     <Magnetic>
-                        <button onClick={() => scrollToSection('hotkeys')} className="nav-link">Controls</button>
+                        <Link to="/docs" className="nav-link">Docs</Link>
                     </Magnetic>
                     <Magnetic>
-                        <a href="https://github.com/birukabza/Pixel-Pilot" target="_blank" className="nav-link">GitHub</a>
+                        <a href="https://github.com/birukabza/Pixel-Pilot" target="_blank" rel="noreferrer" className="nav-link">GitHub</a>
                     </Magnetic>
                 </div>
             </motion.nav>

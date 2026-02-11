@@ -39,6 +39,12 @@ PixelPilot is a high-performance Windows desktop automation agent powered by **G
 - **Voice input**: Mic button uses SpeechRecognition with an audio level visualizer.
 - **Global hotkeys**: System-wide hotkeys work even when the overlay is click-through.
 
+## Operation Modes
+- **GUIDANCE**: Interactive, step-by-step tutorial mode. You do the actions while PixelPilot watches and helps.
+- **SAFE**: Confirms only potentially dangerous actions (like delete, shutdown).
+- **AUTO**: Runs fully autonomously without requiring confirmation.
+- **Blind mode**: When vision is not needed, PixelPilot can plan and act without screenshots and switch back to vision when required.
+
 ## Quick Start
 
 ### 1. Installation
@@ -179,10 +185,6 @@ Optional flags:
 - If UAC handling does not work:
     - Re-run `python install.py` as Administrator to recreate scheduled tasks.
     - Verify the `PixelPilotUACOrchestrator` scheduled task is running.
-
-## License
-
-MIT
 
 ---
 

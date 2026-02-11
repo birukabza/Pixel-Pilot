@@ -54,7 +54,7 @@ export const QuickStart = () => {
 
                 <div className="qs-actions">
                    <Magnetic>
-                        <a href="#" className="docs-link">Read Full Documentation &rarr;</a>
+                        <a href="/docs" className="docs-link">Read Full Documentation &rarr;</a>
                    </Magnetic>
                 </div>
             </div>

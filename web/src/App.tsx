@@ -1,25 +1,20 @@
 import './App.css';
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { Navbar } from './components/Navbar';
-import { Hero } from './components/Hero';
-import { Features } from './components/Features';
-import { QuickStart } from './components/QuickStart';
-import { Hotkeys } from './components/Hotkeys';
-import { Footer } from './components/Footer';
 import { AuroraBackground } from './components/AuroraBackground';
+import { HomePage } from './pages/HomePage';
+import { DocsPage } from './pages/DocsPage';
 
 function App() {
   return (
-    <>
+    <BrowserRouter>
       <AuroraBackground />
       <Navbar />
-      <main>
-        <Hero />
-        <Features />
-        <QuickStart />
-        <Hotkeys />
-        <Footer />
-      </main>
-    </>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/docs" element={<DocsPage />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
 
