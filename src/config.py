@@ -13,7 +13,6 @@ class OperationMode(Enum):
 
 
 class Config:
-    # GEMINI_API_KEY removed for security; using backend.
     BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
     GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
 
@@ -170,8 +169,8 @@ class Config:
     @classmethod
     def validate(cls):
         """Validate configuration and raise errors if misconfigured."""
-
         print("Configuration validated successfully")
         print(f"   Model: {cls.GEMINI_MODEL}")
+        print(f"   Backend: {cls.BACKEND_URL}")
         print(f"   Default Mode: {cls.DEFAULT_MODE.value}")
         print(f"   Turbo Mode: {'ENABLED' if cls.TURBO_MODE else 'DISABLED'}")

@@ -9,15 +9,9 @@ import torch
 from PIL import Image
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
-
 import base64
 
-try:
-    from dotenv import load_dotenv
-
-    _HAS_GENAI = True
-except Exception:
-    _HAS_GENAI = False
+from backend_client import BackendClient
 
 warnings.filterwarnings(
     "ignore", message="'pin_memory' argument is set as true but no accelerator is found"
@@ -131,9 +125,7 @@ class LocalCVEye:
         upper = int(min(255, (1.0 + sigma) * v))
         edges = cv2.Canny(gray, lower, upper)
         edges = cv2.dilate(edges, kernel_small, iterations=1)
-        cnts_edges, _ = cv2.findContours(
-            edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
+        cnts_edges, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         all_contours = list(cnts_thresh) + list(cnts_edges)
 
@@ -229,9 +221,7 @@ class LocalCVEye:
 
             overlap = (w * h) / area[idxs[:last]]
 
-            idxs = np.delete(
-                idxs, np.concatenate(([last], np.where(overlap > overlapThresh)[0]))
-            )
+            idxs = np.delete(idxs, np.concatenate(([last], np.where(overlap > overlapThresh)[0])))
 
         return boxes[pick].astype("int").tolist()
 
@@ -266,25 +256,14 @@ class LocalCVEye:
         return crops
 
 
-try:
-    from backend_client import BackendClient
-except ImportError:
-    # Fallback if running relative
-    import sys
-
-    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from backend_client import BackendClient
-
-
 class GeminiRoboticsEye:
-    """Vision system using Gemini Robotics-ER 1.5 for UI element detection via Backend."""
+    """Vision system using Gemini Robotics-ER 1.5 for UI element detection via backend."""
 
     def __init__(
         self,
         api_key: Optional[str] = None,
         model: str = "gemini-robotics-er-1.5-preview",
     ):
-        # api_key arg is kept for compatibility but ignored/not used.
         self.model = model
         self.client = BackendClient()
 
@@ -330,10 +309,15 @@ class GeminiRoboticsEye:
                 model=self.model,
                 contents=[
                     {
-                        "mime_type": self._get_mime_type(image_path),
-                        "data": base64.b64encode(image_bytes).decode("utf-8"),
-                    },
-                    {"text": prompt},
+                        "role": "user",
+                        "parts": [
+                            {
+                                "mime_type": self._get_mime_type(image_path),
+                                "data": base64.b64encode(image_bytes).decode("utf-8"),
+                            },
+                            {"text": prompt},
+                        ],
+                    }
                 ],
                 config={
                     "temperature": 0.3,
@@ -420,10 +404,15 @@ Return only the JSON array.
                 model=self.model,
                 contents=[
                     {
-                        "mime_type": self._get_mime_type(image_path),
-                        "data": base64.b64encode(image_bytes).decode("utf-8"),
-                    },
-                    {"text": prompt},
+                        "role": "user",
+                        "parts": [
+                            {
+                                "mime_type": self._get_mime_type(image_path),
+                                "data": base64.b64encode(image_bytes).decode("utf-8"),
+                            },
+                            {"text": prompt},
+                        ],
+                    }
                 ],
                 config={"temperature": 0.3, "thinking_config": {"thinking_budget": 0}},
             )
@@ -472,7 +461,6 @@ Return only the JSON array.
 
         except json.JSONDecodeError as e:
             print(f"   -> Error parsing Gemini response: {e}")
-            # print(f"   -> Response was: {response_text[:500]}") # Only available if we had response_text
             return []
         except Exception as e:
             print(f"   -> Error calling Backend API: {e}")
@@ -515,10 +503,15 @@ Return only the JSON array, no code fencing.
                 model=self.model,
                 contents=[
                     {
-                        "mime_type": self._get_mime_type(image_path),
-                        "data": base64.b64encode(image_bytes).decode("utf-8"),
-                    },
-                    {"text": prompt},
+                        "role": "user",
+                        "parts": [
+                            {
+                                "mime_type": self._get_mime_type(image_path),
+                                "data": base64.b64encode(image_bytes).decode("utf-8"),
+                            },
+                            {"text": prompt},
+                        ],
+                    }
                 ],
                 config={"temperature": 0.3, "thinking_config": {"thinking_budget": 0}},
             )
@@ -574,34 +567,21 @@ Return only the JSON array, no code fencing.
             context_text = (task_context or "") + " " + (current_step or "")
             context_lower = context_text.lower()
 
-            if any(
-                word in context_lower for word in ["open", "launch", "start", "run"]
-            ):
+            if any(word in context_lower for word in ["open", "launch", "start", "run"]):
                 priority_types = ["button", "icon", "link", "menu"]
                 focus_hints.append(
                     "Prioritize application launchers, menu items, and clickable buttons"
                 )
-                focus_hints.append(
-                    "Look for Start menu, taskbar icons, or desktop shortcuts"
-                )
+                focus_hints.append("Look for Start menu, taskbar icons, or desktop shortcuts")
 
-            elif any(
-                word in context_lower
-                for word in ["type", "enter", "input", "write", "fill"]
-            ):
+            elif any(word in context_lower for word in ["type", "enter", "input", "write", "fill"]):
                 priority_types = ["text_field", "textarea", "input"]
-                focus_hints.append(
-                    "Prioritize input fields, text boxes, and editable areas"
-                )
+                focus_hints.append("Prioritize input fields, text boxes, and editable areas")
                 focus_hints.append("Identify fields where text can be entered")
 
-            elif any(
-                word in context_lower for word in ["click", "press", "select", "choose"]
-            ):
+            elif any(word in context_lower for word in ["click", "press", "select", "choose"]):
                 priority_types = ["button", "checkbox", "radio_button", "link"]
-                focus_hints.append(
-                    "Prioritize clickable buttons, links, and selection controls"
-                )
+                focus_hints.append("Prioritize clickable buttons, links, and selection controls")
 
             elif any(word in context_lower for word in ["search", "find", "look for"]):
                 priority_types = ["text_field", "button", "icon"]
@@ -611,40 +591,27 @@ Return only the JSON array, no code fencing.
                 focus_hints.append("Look for magnifying glass icons or 'Search' labels")
 
             elif any(
-                word in context_lower
-                for word in ["close", "exit", "quit", "minimize", "maximize"]
+                word in context_lower for word in ["close", "exit", "quit", "minimize", "maximize"]
             ):
                 priority_types = ["button", "icon"]
-                focus_hints.append(
-                    "Prioritize window control buttons (X, minimize, maximize)"
-                )
-                focus_hints.append(
-                    "Look for close buttons, typically in top-right corner"
-                )
+                focus_hints.append("Prioritize window control buttons (X, minimize, maximize)")
+                focus_hints.append("Look for close buttons, typically in top-right corner")
 
             elif any(
-                word in context_lower
-                for word in ["menu", "navigate", "go to", "open settings"]
+                word in context_lower for word in ["menu", "navigate", "go to", "open settings"]
             ):
                 priority_types = ["menu", "dropdown", "link", "tab"]
                 focus_hints.append("Prioritize navigation elements, menus, and tabs")
-                focus_hints.append(
-                    "Look for menu bars, dropdown menus, and navigation links"
-                )
+                focus_hints.append("Look for menu bars, dropdown menus, and navigation links")
 
             elif any(
-                word in context_lower
-                for word in ["submit", "confirm", "ok", "apply", "save"]
+                word in context_lower for word in ["submit", "confirm", "ok", "apply", "save"]
             ):
                 priority_types = ["button"]
-                focus_hints.append(
-                    "Prioritize action buttons like Submit, OK, Apply, or Save"
-                )
+                focus_hints.append("Prioritize action buttons like Submit, OK, Apply, or Save")
                 focus_hints.append("Typically found at the bottom of dialogs or forms")
 
-            elif any(
-                word in context_lower for word in ["cancel", "back", "return", "undo"]
-            ):
+            elif any(word in context_lower for word in ["cancel", "back", "return", "undo"]):
                 priority_types = ["button", "link"]
                 focus_hints.append("Prioritize Cancel, Back, or Undo buttons")
 
@@ -652,11 +619,7 @@ Return only the JSON array, no code fencing.
             priority_types = list(set(priority_types + element_types))
 
         if priority_types or focus_hints:
-            type_list = (
-                ", ".join(priority_types)
-                if priority_types
-                else "all interactive elements"
-            )
+            type_list = ", ".join(priority_types) if priority_types else "all interactive elements"
 
             prompt = f"""
 Analyze this screenshot to identify UI elements relevant to the current task.

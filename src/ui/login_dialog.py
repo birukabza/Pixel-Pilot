@@ -1,7 +1,6 @@
 """
 Login dialog for user authentication.
 Shows email/password fields with login and register options.
-Styled to match the PixelPilot UI theme.
 """
 
 import os
@@ -15,8 +14,9 @@ from PySide6.QtWidgets import (
     QFrame,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QPixmap, QPainter, QColor
+from PySide6.QtGui import QPixmap, QPainter, QColor
 from PySide6.QtSvg import QSvgRenderer
+
 from auth_manager import get_auth_manager
 
 
@@ -31,15 +31,11 @@ class LoginDialog(QDialog):
         self._apply_styles()
 
     def _setup_ui(self):
-        """Setup the dialog UI."""
         self.setWindowTitle("PixelPilot - Login")
         self.setFixedSize(420, 480)
-        self.setWindowFlags(
-            Qt.Dialog | Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint
-        )
+        self.setWindowFlags(Qt.Dialog | Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
-        # Main container with styling
         self.container = QFrame(self)
         self.container.setObjectName("container")
         self.container.setGeometry(0, 0, 420, 480)
@@ -48,7 +44,6 @@ class LoginDialog(QDialog):
         layout.setSpacing(12)
         layout.setContentsMargins(32, 28, 32, 28)
 
-        # Logo
         logo_container = QFrame()
         logo_layout = QHBoxLayout(logo_container)
         logo_layout.setContentsMargins(0, 0, 0, 0)
@@ -75,13 +70,11 @@ class LoginDialog(QDialog):
         layout.addWidget(logo_container)
         layout.addSpacing(8)
 
-        # Title
         title = QLabel("Welcome Back")
         title.setObjectName("title")
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
 
-        # Subtitle
         subtitle = QLabel("Sign in to continue to PixelPilot")
         subtitle.setObjectName("subtitle")
         subtitle.setAlignment(Qt.AlignCenter)
@@ -89,7 +82,6 @@ class LoginDialog(QDialog):
 
         layout.addSpacing(16)
 
-        # Email field
         email_label = QLabel("Email")
         email_label.setObjectName("fieldLabel")
         layout.addWidget(email_label)
@@ -102,7 +94,6 @@ class LoginDialog(QDialog):
 
         layout.addSpacing(8)
 
-        # Password field
         password_label = QLabel("Password")
         password_label.setObjectName("fieldLabel")
         layout.addWidget(password_label)
@@ -117,7 +108,6 @@ class LoginDialog(QDialog):
 
         layout.addSpacing(16)
 
-        # Login button
         self.login_btn = QPushButton("Sign In")
         self.login_btn.setObjectName("primaryBtn")
         self.login_btn.setMinimumHeight(44)
@@ -125,7 +115,6 @@ class LoginDialog(QDialog):
         self.login_btn.clicked.connect(self._on_login)
         layout.addWidget(self.login_btn)
 
-        # Divider
         divider_container = QFrame()
         divider_layout = QHBoxLayout(divider_container)
         divider_layout.setContentsMargins(0, 8, 0, 8)
@@ -146,7 +135,6 @@ class LoginDialog(QDialog):
         divider_layout.addWidget(right_line, 1)
         layout.addWidget(divider_container)
 
-        # Register button
         self.register_btn = QPushButton("Create Account")
         self.register_btn.setObjectName("secondaryBtn")
         self.register_btn.setMinimumHeight(44)
@@ -156,15 +144,13 @@ class LoginDialog(QDialog):
 
         layout.addSpacing(8)
 
-        # Status label
         self.status_label = QLabel("")
         self.status_label.setObjectName("statusLabel")
         self.status_label.setAlignment(Qt.AlignCenter)
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
 
-        # Close button (absolute positioning)
-        self.close_btn = QPushButton("×", self.container)
+        self.close_btn = QPushButton("x", self.container)
         self.close_btn.setObjectName("closeDialogBtn")
         self.close_btn.setGeometry(380, 12, 28, 28)
         self.close_btn.setCursor(Qt.PointingHandCursor)
@@ -173,7 +159,6 @@ class LoginDialog(QDialog):
         layout.addStretch()
 
     def _apply_styles(self):
-        """Apply PixelPilot theme styles."""
         self.setStyleSheet(
             """
             QFrame#container {
@@ -205,18 +190,18 @@ class LoginDialog(QDialog):
                 font: bold 22px 'Segoe UI', 'Inter', sans-serif;
                 letter-spacing: 0.5px;
             }
-            
+
             QLabel#subtitle {
                 color: rgba(207, 233, 255, 0.6);
                 font: 12px 'Segoe UI', 'Inter', sans-serif;
             }
-            
+
             QLabel#fieldLabel {
                 color: rgba(207, 233, 255, 0.8);
                 font: 600 11px 'Segoe UI', 'Inter', sans-serif;
                 letter-spacing: 0.3px;
             }
-            
+
             QLineEdit#inputField {
                 background: rgba(20, 36, 54, 200);
                 border: 1px solid rgba(52, 78, 102, 180);
@@ -225,15 +210,15 @@ class LoginDialog(QDialog):
                 color: #e5f3ff;
                 font: 13px 'Segoe UI', 'Inter', sans-serif;
             }
-            
+
             QLineEdit#inputField:focus {
                 border: 1px solid #057FCA;
             }
-            
+
             QLineEdit#inputField::placeholder {
                 color: rgba(207, 233, 255, 0.4);
             }
-            
+
             QPushButton#primaryBtn {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #057FCA, stop:1 #0598e0);
                 border: none;
@@ -242,15 +227,15 @@ class LoginDialog(QDialog):
                 font: bold 13px 'Segoe UI', 'Inter', sans-serif;
                 letter-spacing: 0.5px;
             }
-            
+
             QPushButton#primaryBtn:hover {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0690db, stop:1 #06a8f0);
             }
-            
+
             QPushButton#primaryBtn:pressed {
                 background: #046da8;
             }
-            
+
             QPushButton#secondaryBtn {
                 background: transparent;
                 border: 1px solid rgba(52, 78, 102, 180);
@@ -258,22 +243,22 @@ class LoginDialog(QDialog):
                 color: #cfe9ff;
                 font: 600 12px 'Segoe UI', 'Inter', sans-serif;
             }
-            
+
             QPushButton#secondaryBtn:hover {
                 background: rgba(52, 78, 102, 80);
                 border-color: #057FCA;
             }
-            
+
             QFrame#dividerLine {
                 background: rgba(52, 78, 102, 180);
             }
-            
+
             QLabel#dividerText {
                 color: rgba(207, 233, 255, 0.5);
                 font: 11px 'Segoe UI', 'Inter', sans-serif;
                 padding: 0 12px;
             }
-            
+
             QLabel#statusLabel {
                 color: #ff6b6b;
                 font: 11px 'Segoe UI', 'Inter', sans-serif;
@@ -282,62 +267,58 @@ class LoginDialog(QDialog):
         """
         )
 
+    def _set_status(self, text: str, ok: bool) -> None:
+        self.status_label.setText(text)
+        if ok:
+            self.status_label.setStyleSheet("color: rgba(207, 233, 255, 0.6);")
+        else:
+            self.status_label.setStyleSheet("color: #ff6b6b;")
+        self.repaint()
+
     def _on_login(self):
-        """Handle login button click."""
         email = self.email_input.text().strip()
         password = self.password_input.text()
 
         if not email or not password:
-            self.status_label.setText("Please enter email and password")
+            self._set_status("Please enter email and password", ok=False)
             return
 
-        self.status_label.setText("Signing in...")
-        self.status_label.setStyleSheet("color: rgba(207, 233, 255, 0.6);")
-        self.repaint()
+        self._set_status("Signing in...", ok=True)
 
         try:
             self.auth_manager.login(email, password)
             self.success = True
             self.accept()
         except RuntimeError as e:
-            self.status_label.setText(str(e))
-            self.status_label.setStyleSheet("color: #ff6b6b;")
+            self._set_status(str(e), ok=False)
 
     def _on_register(self):
-        """Handle register button click."""
         email = self.email_input.text().strip()
         password = self.password_input.text()
 
         if not email or not password:
-            self.status_label.setText("Please enter email and password")
+            self._set_status("Please enter email and password", ok=False)
             return
 
         if len(password) < 6:
-            self.status_label.setText("Password must be at least 6 characters")
+            self._set_status("Password must be at least 6 characters", ok=False)
             return
 
-        self.status_label.setText("Creating account...")
-        self.status_label.setStyleSheet("color: rgba(207, 233, 255, 0.6);")
-        self.repaint()
+        self._set_status("Creating account...", ok=True)
 
         try:
             self.auth_manager.register(email, password)
             self.success = True
             self.accept()
         except RuntimeError as e:
-            self.status_label.setText(str(e))
-            self.status_label.setStyleSheet("color: #ff6b6b;")
+            self._set_status(str(e), ok=False)
 
     def mousePressEvent(self, event):
-        """Enable dragging the frameless window."""
         if event.button() == Qt.LeftButton:
-            self._drag_pos = (
-                event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            )
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
 
     def mouseMoveEvent(self, event):
-        """Handle window dragging."""
         if event.buttons() == Qt.LeftButton and hasattr(self, "_drag_pos"):
             self.move(event.globalPosition().toPoint() - self._drag_pos)
             event.accept()
@@ -346,19 +327,12 @@ class LoginDialog(QDialog):
 def require_login() -> bool:
     """
     Show login dialog if user is not logged in.
-
-    Returns:
-        True if user is logged in (or just logged in), False if cancelled.
+    Returns True if user is logged in (or just logged in), False if cancelled.
     """
     auth = get_auth_manager()
+    if auth.is_logged_in and auth.verify_token():
+        return True
 
-    # Check if already logged in with valid token
-    if auth.is_logged_in:
-        if auth.verify_token():
-            return True
-
-    # Show login dialog
     dialog = LoginDialog()
-    result = dialog.exec()
-
+    dialog.exec()
     return dialog.success

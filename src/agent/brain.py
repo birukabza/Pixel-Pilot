@@ -7,14 +7,12 @@ from pydantic import BaseModel, Field
 from config import Config
 from backend_client import BackendClient, RateLimitError
 
-# client = genai.Client(api_key=api_key) -> Removed
 client = BackendClient()
-
 model = Config.GEMINI_MODEL
 
 
 class ModelWrapper:
-    def __init__(self, model_name):
+    def __init__(self, model_name: str):
         self.model_name = model_name
 
     def generate_content(self, contents, config=None):
@@ -85,28 +83,6 @@ class ActionParams(BaseModel):
     workspace: Optional[str] = Field(None, description="Target workspace")
 
 
-class SkillArgs(BaseModel):
-    query: Optional[str] = Field(None, description="For search/media")
-    url: Optional[str] = Field(None, description="For browser open")
-    action: Optional[str] = Field(None, description="For volume control")
-    page: Optional[str] = Field(None, description="For settings")
-
-
-class ActionParams(BaseModel):
-    element_id: Optional[int] = Field(None, description="ID of UI element")
-    target_id: Optional[int] = Field(None, description="Alias for element_id")
-    text: Optional[str] = Field(None, description="Text to type or reply")
-    key: Optional[str] = Field(None, description="Key to press")
-    keys: Optional[List[str]] = Field(None, description="Keys for combo")
-    seconds: Optional[float] = Field(None, description="Time to wait")
-    app_name: Optional[str] = Field(None, description="App to open")
-    zoom_level: Optional[float] = Field(None, description="Magnification level")
-    skill: Optional[str] = Field(None, description="Skill name")
-    method: Optional[str] = Field(None, description="Skill method")
-    args: Optional[SkillArgs] = Field(None, description="Arguments for skill method")
-    workspace: Optional[str] = Field(None, description="Target workspace")
-
-
 class SubAction(BaseModel):
     action_type: str = Field(
         description=(
@@ -149,6 +125,27 @@ class PlannedAction(BaseModel):
         default=None,
         description="A sequence of actions to execute at once (Turbo Mode)",
     )
+
+
+def _pil_to_dict(img: Image.Image) -> Dict[str, str]:
+    img_byte_arr = io.BytesIO()
+    img.save(img_byte_arr, format="PNG")
+    return {
+        "mime_type": "image/png",
+        "data": base64.b64encode(img_byte_arr.getvalue()).decode("utf-8"),
+    }
+
+
+def _normalize_history(history: Optional[List]) -> List[Dict[str, Any]]:
+    if not history:
+        return []
+    normalized = []
+    for item in history:
+        if isinstance(item, dict) and "role" in item and "parts" in item:
+            normalized.append(item)
+        elif isinstance(item, str):
+            normalized.append({"role": "model", "parts": [{"text": item}]})
+    return normalized
 
 
 def ask_brain(
@@ -199,25 +196,21 @@ def ask_brain(
     Return JSON: {{ "element_id": <int>, "reasoning": "<string>" }}
     """
 
-    def img_to_dict(img):
-        img_byte_arr = io.BytesIO()
-        img.save(img_byte_arr, format="PNG")
-        return {
-            "mime_type": "image/png",
-            "data": base64.b64encode(img_byte_arr.getvalue()).decode("utf-8"),
-        }
-
     contents = [
-        {"text": prompt_text},
-        img_to_dict(clean_image),
-        img_to_dict(annotated_image),
+        {
+            "role": "user",
+            "parts": [
+                {"text": prompt_text},
+                _pil_to_dict(clean_image),
+                _pil_to_dict(annotated_image),
+            ],
+        }
     ]
 
     try:
-        # BackendClient.generate_content returns dict: {"text": "..."}
         response_data = client.generate_content(
             model=model,
-            contents=[{"role": "user", "parts": contents}],
+            contents=contents,
             config={
                 "response_mime_type": "application/json",
                 "response_json_schema": ActionResponse.model_json_schema(),
@@ -249,18 +242,6 @@ def plan_task(
     """
     Enhanced brain function for multi-step task planning.
     Returns a structured action plan with multiple steps if needed.
-
-    Args:
-        user_command: The user's natural language command
-        screen_elements: List of detected UI elements
-        original_path: Path to original screenshot
-        debug_path: Path to annotated screenshot
-        reference_sheet: Reference sheet image
-        task_context: Optional context about ongoing task
-        magnification_hint: Optional info about current zoom state
-
-    Returns:
-        Dict with task plan or None if error
     """
     try:
         clean_image = Image.open(original_path)
@@ -287,9 +268,7 @@ def plan_task(
     turbo_status = "ENABLED" if Config.TURBO_MODE else "DISABLED"
     workspace_section = f"CURRENT WORKSPACE: {current_workspace}"
     agent_desktop_section = (
-        "AGENT DESKTOP AVAILABLE: YES"
-        if agent_desktop_available
-        else "AGENT DESKTOP AVAILABLE: NO"
+        "AGENT DESKTOP AVAILABLE: YES" if agent_desktop_available else "AGENT DESKTOP AVAILABLE: NO"
     )
     guidance_section = ""
     if guidance_mode:
@@ -409,27 +388,21 @@ CRITICAL GUIDELINES:
 
 """
 
-    def pil_to_dict(img):
-        img_byte_arr = io.BytesIO()
-        img.save(img_byte_arr, format="PNG")
-        return {
-            "mime_type": "image/png",
-            "data": base64.b64encode(img_byte_arr.getvalue()).decode("utf-8"),
-        }
-
     contents = [
-        {"text": prompt_text},
-        pil_to_dict(clean_image),
-        pil_to_dict(annotated_image),
+        {
+            "role": "user",
+            "parts": [
+                {"text": prompt_text},
+                _pil_to_dict(clean_image),
+                _pil_to_dict(annotated_image),
+            ],
+        }
     ]
     if reference_sheet:
-        contents.append(pil_to_dict(reference_sheet))
+        contents[0]["parts"].append(_pil_to_dict(reference_sheet))
 
-    # We need to process history to ensure it uses dicts too if it was storing types.Part
-    # but based on agent usage, history usually contains strings/dicts for text.
-    # We will assume history is cleaner or manageable by backend_client.
-    contents_to_send = history[-10:] if history else []
-    contents_to_send.append({"role": "user", "parts": contents})
+    contents_to_send = _normalize_history(history)
+    contents_to_send.append(contents[0])
 
     try:
         response_data = client.generate_content(
@@ -443,16 +416,12 @@ CRITICAL GUIDELINES:
             },
         )
 
-        # response_data is {"text": "..."}
         response_text = response_data["text"]
-
-        # Original code returned (action_dict, model_part).
-        # We'll just return text as model_part.
         action_dict = PlannedAction.model_validate_json(response_text).model_dump(
             exclude_none=True
         )
-
-        return action_dict, response_text
+        model_part = {"role": "model", "parts": [{"text": response_text}]}
+        return action_dict, model_part
     except RateLimitError:
         raise
     except Exception as e:
@@ -480,9 +449,7 @@ def plan_task_blind(
     turbo_status = "ENABLED" if Config.TURBO_MODE else "DISABLED"
     workspace_section = f"CURRENT WORKSPACE: {current_workspace}"
     agent_desktop_section = (
-        "AGENT DESKTOP AVAILABLE: YES"
-        if agent_desktop_available
-        else "AGENT DESKTOP AVAILABLE: NO"
+        "AGENT DESKTOP AVAILABLE: YES" if agent_desktop_available else "AGENT DESKTOP AVAILABLE: NO"
     )
 
     prompt_text = f"""
@@ -548,14 +515,14 @@ RESPONSE FORMAT:
     "action_type": "...",
     "params": {{ ... }},
     "reasoning": "Explain your risk assessment here. Why is blind safe? Or why is vision needed?",
-    "needs_vision": false,  <-- SET TO TRUE IF YOU NEED TO SEE, VERIFY, OR CHECK FOR ERRORS
+    "needs_vision": false,
     "task_complete": false,
     "skip_verification": false
 }}
 """
-    contents = [{"text": prompt_text}]
-    contents_to_send = history[-10:] if history else []
-    contents_to_send.append({"role": "user", "parts": contents})
+
+    contents_to_send = _normalize_history(history)
+    contents_to_send.append({"role": "user", "parts": [{"text": prompt_text}]})
 
     try:
         response_data = client.generate_content(
@@ -567,10 +534,9 @@ RESPONSE FORMAT:
             },
         )
         response_text = response_data["text"]
-        action_dict = PlannedAction.model_validate_json(response_text).model_dump(
-            exclude_none=True
-        )
-        return action_dict, response_text
+        action_dict = PlannedAction.model_validate_json(response_text).model_dump()
+        model_part = {"role": "model", "parts": [{"text": response_text}]}
+        return action_dict, model_part
     except RateLimitError:
         raise
     except Exception as e:
@@ -591,9 +557,7 @@ def plan_task_blind_first_step(
 
     workspace_section = f"CURRENT WORKSPACE: {current_workspace}"
     agent_desktop_section = (
-        "AGENT DESKTOP AVAILABLE: YES"
-        if agent_desktop_available
-        else "AGENT DESKTOP AVAILABLE: NO"
+        "AGENT DESKTOP AVAILABLE: YES" if agent_desktop_available else "AGENT DESKTOP AVAILABLE: NO"
     )
 
     prompt_text = f"""
@@ -626,9 +590,8 @@ RESPONSE FORMAT:
 }}
 """
 
-    contents = [{"text": prompt_text}]
-    contents_to_send = history[-10:] if history else []
-    contents_to_send.append({"role": "user", "parts": contents})
+    contents_to_send = _normalize_history(history)
+    contents_to_send.append({"role": "user", "parts": [{"text": prompt_text}]})
 
     try:
         response_data = client.generate_content(
@@ -640,10 +603,9 @@ RESPONSE FORMAT:
             },
         )
         response_text = response_data["text"]
-        action_dict = PlannedAction.model_validate_json(response_text).model_dump(
-            exclude_none=True
-        )
-        return action_dict, response_text
+        action_dict = PlannedAction.model_validate_json(response_text).model_dump()
+        model_part = {"role": "model", "parts": [{"text": response_text}]}
+        return action_dict, model_part
     except RateLimitError:
         raise
     except Exception as e:
