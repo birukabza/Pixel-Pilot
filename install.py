@@ -107,6 +107,34 @@ def prefetch_ocr_models(python_exe: str) -> bool:
         return False
 
 
+def prebuild_app_index(python_exe: str) -> bool:
+    """Build the app index cache during install to avoid first-run delay."""
+    if not python_exe:
+        print("[-] No Python executable provided for app index prebuild.")
+        return False
+
+    repo_root = str(REPO_ROOT)
+    cmd = [
+        python_exe,
+        "-c",
+        (
+            "import sys; "
+            f"sys.path.insert(0, r'{repo_root}\\src'); "
+            "from tools.app_indexer import AppIndexer; "
+            "AppIndexer()"
+        ),
+    ]
+
+    try:
+        print("[*] Building app index cache...")
+        subprocess.run(cmd, check=True)
+        print("[+] App index cache built.")
+        return True
+    except subprocess.CalledProcessError as exc:
+        print(f"[!] App index prebuild failed: {exc}")
+        return False
+
+
 def _try_kill_image(image_name: str) -> None:
     try:
         subprocess.run(["taskkill", "/F", "/IM", image_name], capture_output=True)
@@ -424,6 +452,7 @@ def main() -> None:
         if not install_requirements(venv_python, Path(args.requirements)):
             return
         prefetch_ocr_models(venv_python)
+        prebuild_app_index(venv_python)
     else:
         venv_python = None
 
