@@ -181,7 +181,7 @@ class ActionExecutor:
             return False
 
         dm = self.desktop_manager
-        success = self.agent.keyboard.hotkey(*keys, desktop_manager=dm)
+        success = self.agent.keyboard.key_combo(*keys, desktop_manager=dm)
         time.sleep(Config.WAIT_AFTER_TYPE)
         return success
 
