@@ -63,7 +63,7 @@ class GuidanceSession:
         self.capture_func = capture_func
         self.stop_check = stop_check_func
         
-        self.model = get_model()
+        self.model = get_model(callback=self._log)
         self.completed_steps: List[str] = []
         self.current_instruction: Optional[str] = None
         self.step_count = 0
@@ -180,11 +180,30 @@ class GuidanceSession:
             
             goal_status = self._check_goal_complete(elements)
             
-            if goal_status and goal_status.complete and goal_status.confidence > 0.7:
-                self.completed_steps.append(self.current_instruction or "Previous step")
-                self._send_message(f"🎉 {goal_status.reason}")
-                self._wait_for_user_ack("Done")
-                return "complete"
+            if goal_status and goal_status.complete and goal_status.confidence > 0.85:
+                self._send_message(f"It looks like the goal might be complete: {goal_status.reason}.")
+                self._send_message(f"If you are finished, type 'Yes' and click Done. If you need to do more, click 'Continue'.")
+                
+                conf_msg, conf_proceed = self._wait_for_user(label="Continue")
+                
+                if not conf_proceed:
+                    return "stopped"
+                
+                if not conf_msg:
+                    self._log("User clicked Continue (Goal not done)")
+                    self._send_message("Okay, let's keep working.")
+                    return "continue"
+
+                conf_intent = self._classify_confirmation(conf_msg)
+                if conf_intent == "yes":
+                    self.completed_steps.append(self.current_instruction or "Previous step")
+                    self._send_message(f"Great job! Goal completed.")
+                    self._wait_for_user_ack("Done")
+                    return "complete"
+                elif conf_intent == "no":
+                    self._send_message("Okay, let's continue then.")
+                else:
+                    self._send_message("Okay, let's continue then.")
             
             if self.current_instruction:
                 verification = self._verify_step(elements)
@@ -259,6 +278,18 @@ class GuidanceSession:
             logger.exception("Failed to generate instruction")
             return "I'm having trouble thinking of the next step. Can you describe what you see on screen?"
     
+    
+    def _classify_confirmation(self, message: str) -> str:
+        """Classify user confirmation response."""
+        from agent.prompts import CONFIRMATION_PROMPT
+        
+        prompt = CONFIRMATION_PROMPT.replace("{user_message}", message)
+        try:
+            response = self.model.generate_content([prompt])
+            return response["text"].strip().lower()
+        except Exception:
+            return "uncertain"
+
     def _classify_intent(self, message: str) -> str:
         """Classify user message intent."""
         msg_lower = message.lower().strip()
@@ -419,7 +450,7 @@ class GuidanceSession:
         except Exception:
             return None
     
-    def _wait_for_user(self) -> Tuple[Optional[str], bool]:
+    def _wait_for_user(self, label: str = "Next") -> Tuple[Optional[str], bool]:
         """
         Wait for user input.
         
@@ -439,7 +470,7 @@ class GuidanceSession:
             "result": False,
             "event": threading.Event(),
             "feedback": None,
-            "label": "Next",
+            "label": label,
             "final": False,
             "steps": {
                 "done": list(self.completed_steps),

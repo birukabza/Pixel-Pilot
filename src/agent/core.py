@@ -137,8 +137,12 @@ class AgentOrchestrator:
         needs_vision = True
         self.is_magnified = False
         self.zoom_center = None
+        self.verifying_completion = False
 
         self.log(f"Starting task: {user_command}")
+
+        def ai_status_callback(msg: str):
+            self.log(msg)
 
         if self.mode == OperationMode.GUIDE:
             self.log("Entering GUIDANCE mode (Interactive Tutorial)")
@@ -166,7 +170,8 @@ class AgentOrchestrator:
                     user_command,
                     history=self.task_history,
                     current_workspace=self.active_workspace,
-                    agent_desktop_available=(self.desktop_manager is not None and self.desktop_manager.is_created)
+                    agent_desktop_available=(self.desktop_manager is not None and self.desktop_manager.is_created),
+                    callback=ai_status_callback
                 )
                 needs_vision = False
             else:
@@ -203,7 +208,8 @@ class AgentOrchestrator:
                         ref_sheet,
                         history=self.task_history,
                         current_workspace=self.active_workspace,
-                        agent_desktop_available=(self.desktop_manager is not None and self.desktop_manager.is_created)
+                        agent_desktop_available=(self.desktop_manager is not None and self.desktop_manager.is_created),
+                        callback=ai_status_callback
                     )
                 else:
                     from agent.brain import plan_task_blind
@@ -211,7 +217,8 @@ class AgentOrchestrator:
                         user_command,
                         history=self.task_history,
                         current_workspace=self.active_workspace,
-                        agent_desktop_available=(self.desktop_manager is not None and self.desktop_manager.is_created)
+                        agent_desktop_available=(self.desktop_manager is not None and self.desktop_manager.is_created),
+                        callback=ai_status_callback
                     )
 
             if not action_data:
@@ -311,6 +318,16 @@ class AgentOrchestrator:
                     needs_vision = True
                     continue
                 
+                if not action.get("skip_verification") and not self.verifying_completion:
+                    self.log("Intercepting completion for MANDATORY visual verification.")
+                    self.verifying_completion = True
+                    needs_vision = True
+                    self.task_history.append({
+                        "role": "user", 
+                        "parts": [{"text": "You have indicated the task is complete. Please VERIFY this visually. Is the goal FULLY achieved? If yes, set task_complete=true again. If no, continue working."}]
+                    })
+                    continue
+
                 if self.deferred_reply and self.chat_window:
                     try:
                         self.chat_window.add_final_answer(self.deferred_reply)

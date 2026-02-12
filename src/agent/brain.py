@@ -2,7 +2,7 @@ import io
 import json
 import base64
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Callable
 from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel, Field
 from config import Config
@@ -19,17 +19,21 @@ logger = logging.getLogger("pixelpilot.brain")
 
 
 class ModelWrapper:
-    def __init__(self, model_name: str):
+    def __init__(self, model_name: str, callback: Optional[Callable[[str], None]] = None):
         self.model_name = model_name
+        self.callback = callback
 
     def generate_content(self, contents, config=None):
+        if self.callback:
+            self.callback("Waiting for AI response...")
+        logger.info("Waiting for AI response...")
         return client.generate_content(
             model=self.model_name, contents=contents, config=config
         )
 
 
-def get_model():
-    return ModelWrapper(model)
+def get_model(callback: Optional[Callable[[str], None]] = None):
+    return ModelWrapper(model, callback=callback)
 
 
 def create_reference_sheet(crops):
@@ -168,6 +172,7 @@ def plan_task(
     current_workspace: str = "user",
     agent_desktop_available: bool = False,
     media_resolution: str = "low",
+    callback: Optional[Callable[[str], None]] = None,
 ) -> Optional[tuple[Dict[str, Any], Any]]:
     """
     Enhanced brain function for multi-step task planning.
@@ -235,8 +240,8 @@ def plan_task(
     contents_to_send.append(contents[0])
 
     try:
-        response_data = client.generate_content(
-            model=model,
+        mw = get_model(callback)
+        response_data = mw.generate_content(
             contents=contents_to_send,
             config={
                 "response_mime_type": "application/json",
@@ -265,6 +270,7 @@ def plan_task_blind(
     history: Optional[List] = None,
     current_workspace: str = "user",
     agent_desktop_available: bool = False,
+    callback: Optional[Callable[[str], None]] = None,
 ) -> Optional[tuple[Dict[str, Any], Any]]:
     """
     Planning for 'Blind Mode' (No Vision).
@@ -301,8 +307,8 @@ def plan_task_blind(
     contents_to_send.append({"role": "user", "parts": [{"text": prompt_text}]})
 
     try:
-        response_data = client.generate_content(
-            model=model,
+        mw = get_model(callback)
+        response_data = mw.generate_content(
             contents=contents_to_send,
             config={
                 "response_mime_type": "application/json",
@@ -325,6 +331,7 @@ def plan_task_blind_first_step(
     history: Optional[List] = None,
     current_workspace: str = "user",
     agent_desktop_available: bool = False,
+    callback: Optional[Callable[[str], None]] = None,
 ) -> Optional[tuple[Dict[str, Any], Any]]:
     """
     First-step blind planning focused only on workspace selection.
@@ -346,8 +353,8 @@ def plan_task_blind_first_step(
     contents_to_send.append({"role": "user", "parts": [{"text": prompt_text}]})
 
     try:
-        response_data = client.generate_content(
-            model=model,
+        mw = get_model(callback)
+        response_data = mw.generate_content(
             contents=contents_to_send,
             config={
                 "response_mime_type": "application/json",
