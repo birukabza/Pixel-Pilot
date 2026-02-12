@@ -13,7 +13,7 @@ class OperationMode(Enum):
 
 
 class Config:
-    BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+    BACKEND_URL = os.getenv("BACKEND_URL", "https://pixel-pilot-5jpy.onrender.com")
     GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
 
     DEFAULT_MODE = OperationMode(os.getenv("DEFAULT_MODE", OperationMode.AUTO.value))
