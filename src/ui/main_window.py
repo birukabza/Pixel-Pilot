@@ -7,8 +7,8 @@ from .chat_widget import ChatWidget
 
 
 class MainWindow(QMainWindow):
-    BAR_SIZE = (880, 84)
-    EXTENDED_SIZE = (880, 660)
+    BAR_SIZE = (920, 84)
+    EXTENDED_SIZE = (920, 660)
 
     def __init__(self):
         super().__init__()
@@ -33,7 +33,7 @@ class MainWindow(QMainWindow):
         self.chat_widget.expand_btn.clicked.connect(self.toggle_expand)
         self.chat_widget.minimize_btn.clicked.connect(self.minimize_to_background)
         self.chat_widget.close_btn.clicked.connect(QApplication.quit)
-        self.chat_widget.agent_view_btn.clicked.connect(self._ensure_extended_for_agent_view)
+        self.chat_widget.workspace_badge.clicked.connect(self._ensure_extended_for_agent_view)
 
         self.center_at_top()
 
@@ -97,7 +97,7 @@ class MainWindow(QMainWindow):
         self.set_expanded(not self.expanded)
 
     def _ensure_extended_for_agent_view(self):
-        if self.chat_widget.agent_view_btn.isEnabled() and not self.expanded:
+        if self.chat_widget.can_toggle_agent_view() and not self.expanded:
             self.set_expanded(True)
 
     def minimize_to_background(self):

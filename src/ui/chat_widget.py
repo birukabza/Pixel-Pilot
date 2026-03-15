@@ -12,9 +12,10 @@ from PySide6.QtWidgets import (
     QLabel,
     QFrame,
     QComboBox,
+    QMenu,
 )
 from PySide6.QtCore import Qt, Signal, QUrl, QTimer
-from PySide6.QtGui import QColor, QTextBlockFormat, QTextCharFormat, QTextCursor
+from PySide6.QtGui import QAction, QActionGroup, QColor, QTextBlockFormat, QTextCharFormat, QTextCursor
 from PySide6.QtSvgWidgets import QSvgWidget
 
 from services.audio import AudioService
@@ -59,8 +60,9 @@ class ChatWidget(QWidget):
         self.mode_combo.currentIndexChanged.connect(self._emit_mode_changed)
         self.vision_combo.currentIndexChanged.connect(self.update_vision_tooltip)
         self.vision_combo.currentIndexChanged.connect(self._emit_vision_changed)
-        self.agent_view_btn.clicked.connect(self._toggle_agent_view)
+        self.workspace_badge.clicked.connect(self._toggle_agent_view)
         self.live_btn.clicked.connect(self._emit_live_mode_changed)
+        self.settings_btn.clicked.connect(self._show_settings_menu)
 
         self.view_mode = "bar_only"
         self._agent_view_enabled = False
@@ -88,6 +90,10 @@ class ChatWidget(QWidget):
         self._assistant_audio_level = 0.0
         self._assistant_streaming_active = False
         self._mic_visual_state = "idle"
+        self._mode_actions: dict[str, QAction] = {}
+        self._vision_actions: dict[str, QAction] = {}
+
+        self._build_settings_menu()
 
         self.set_view_mode("bar_only")
         self.update_mode_tooltip()
@@ -114,6 +120,7 @@ class ChatWidget(QWidget):
         finally:
             self.mode_combo.blockSignals(False)
         self.update_mode_tooltip()
+        self._sync_settings_menu()
 
     def _emit_mode_changed(self):
         text = self.mode_combo.currentText().strip().upper()
@@ -140,6 +147,7 @@ class ChatWidget(QWidget):
         finally:
             self.vision_combo.blockSignals(False)
         self.update_vision_tooltip()
+        self._sync_settings_menu()
 
     def set_live_availability(self, available: bool, reason: str = ""):
         self._live_available = bool(available)
@@ -200,12 +208,39 @@ class ChatWidget(QWidget):
         self._refresh_mic_visual_state()
         self._apply_view_mode()
 
+    def _live_button_presentation(self) -> tuple[str, str, str]:
+        if not self._live_available:
+            return ("LIVE N/A", "disabled", self.live_btn.toolTip() or "Gemini Live unavailable")
+        if not self._live_enabled:
+            return ("LIVE OFF", "off", "Enable Gemini Live mode")
+
+        state_key = (self._live_session_state or "disconnected").strip().lower()
+        if state_key == "disconnected":
+            return ("READY", "ready", "Gemini Live is enabled and ready")
+        if state_key == "connecting":
+            return ("CONNECT", "connecting", "Gemini Live is connecting")
+        if state_key == "listening":
+            return ("LIVE ON", "connected", "Disable Gemini Live mode")
+        if state_key == "thinking":
+            return ("THINK", "thinking", "Gemini Live is thinking")
+        if state_key == "waiting":
+            return ("WAIT", "waiting", "Gemini Live is waiting for an action")
+        if state_key == "acting":
+            return ("ACTING", "acting", "Gemini Live is acting")
+        if state_key == "interrupted":
+            return ("PAUSED", "interrupted", "Gemini Live was interrupted")
+        return ("LIVE ON", "connected", "Disable Gemini Live mode")
+
+    def _apply_live_button_state(self):
+        text, state, tooltip = self._live_button_presentation()
+        self.live_btn.setText(text)
+        self.live_btn.setProperty("state", state)
+        self.live_btn.setToolTip(tooltip)
+        self.live_btn.style().unpolish(self.live_btn)
+        self.live_btn.style().polish(self.live_btn)
+
     def _refresh_live_controls(self):
-        if self._live_enabled and self._live_available:
-            self.live_btn.setText("LIVE ON")
-            self.live_btn.setToolTip("Disable Gemini Live mode")
-        else:
-            self.live_btn.setText("LIVE")
+        self._apply_live_button_state()
         if self._live_enabled and self._live_voice_active:
             self.mic_btn.setToolTip("Stop live voice session")
         elif self._live_enabled:
@@ -224,6 +259,7 @@ class ChatWidget(QWidget):
         self._live_enabled = enabled and self._live_available
         self.live_mode_changed.emit(self._live_enabled)
         self._refresh_live_controls()
+        self._apply_view_mode()
 
     def set_workspace_status(self, workspace: str):
         key = (workspace or "").strip().lower()
@@ -233,12 +269,6 @@ class ChatWidget(QWidget):
         label = "USER" if key == "user" else "AGENT"
         self.workspace_badge.setText(label)
         self.workspace_badge.setProperty("workspace", key)
-        self.workspace_badge.setToolTip(
-            "Current workspace: User Desktop" if key == "user" else "Current workspace: Agent Desktop"
-        )
-
-        self.workspace_badge.style().unpolish(self.workspace_badge)
-        self.workspace_badge.style().polish(self.workspace_badge)
         self.set_agent_view_enabled(key == "agent")
 
     def set_expanded(self, expanded: bool):
@@ -246,12 +276,9 @@ class ChatWidget(QWidget):
 
     def set_agent_view_enabled(self, enabled: bool):
         self._agent_view_enabled = bool(enabled)
-        self.agent_view_btn.setEnabled(self._agent_view_enabled)
-        if self._agent_view_enabled:
-            self.agent_view_btn.setToolTip("Toggle live Agent Desktop view")
-        else:
-            self.agent_view_btn.setToolTip("Agent view is available only on agent workspace")
+        if not self._agent_view_enabled:
             self._agent_view_requested = False
+        self._refresh_workspace_badge()
         self._apply_view_mode()
 
     def set_agent_preview_source(self, desktop_manager_or_none):
@@ -266,6 +293,37 @@ class ChatWidget(QWidget):
         self._agent_view_requested = not self._agent_view_requested
         self._apply_view_mode()
 
+    def can_toggle_agent_view(self) -> bool:
+        return self._agent_view_enabled
+
+    def _refresh_workspace_badge(self, show_agent: bool = False):
+        workspace = str(self.workspace_badge.property("workspace") or "user").strip().lower()
+        is_agent = workspace == "agent"
+        is_clickable = bool(is_agent and self._agent_view_enabled)
+        is_active = bool(is_clickable and show_agent)
+
+        self.workspace_badge.setProperty("clickable", is_clickable)
+        self.workspace_badge.setProperty("agentView", "shown" if is_active else "hidden")
+        self.workspace_badge.setCursor(
+            Qt.CursorShape.PointingHandCursor if is_clickable else Qt.CursorShape.ArrowCursor
+        )
+
+        if workspace == "agent":
+            if is_clickable:
+                tooltip = (
+                    "Current workspace: Agent Desktop. Click to hide the agent view"
+                    if is_active
+                    else "Current workspace: Agent Desktop. Click to show the agent view"
+                )
+            else:
+                tooltip = "Current workspace: Agent Desktop"
+        else:
+            tooltip = "Current workspace: User Desktop"
+        self.workspace_badge.setToolTip(tooltip)
+
+        self.workspace_badge.style().unpolish(self.workspace_badge)
+        self.workspace_badge.style().polish(self.workspace_badge)
+
     def _emit_vision_changed(self):
         text = self.vision_combo.currentText().strip().upper()
         if text == "ROBO":
@@ -274,6 +332,98 @@ class ChatWidget(QWidget):
             self.vision_changed.emit("ocr")
         else:
             self.vision_changed.emit("robo")
+
+    def _build_settings_menu(self):
+        self.settings_menu = QMenu(self)
+        self.settings_menu.setObjectName("settingsMenu")
+        self.settings_menu.setStyleSheet(
+            """
+            QMenu {
+                background: #f8fafc;
+                color: #1f2937;
+                border: 1px solid #d3dce8;
+                border-radius: 10px;
+                padding: 6px;
+            }
+            QMenu::separator {
+                height: 1px;
+                background: #e2e8f0;
+                margin: 6px 2px;
+            }
+            QMenu::item {
+                padding: 7px 14px;
+                border-radius: 8px;
+            }
+            QMenu::item:selected {
+                background: #e2e8f0;
+            }
+        """
+        )
+
+        self.settings_menu.addSection("Mode")
+        mode_group = QActionGroup(self)
+        mode_group.setExclusive(True)
+        mode_entries = [
+            ("GUIDANCE", "Guidance"),
+            ("SAFE", "Safe"),
+            ("AUTO", "Auto"),
+        ]
+        for key, label in mode_entries:
+            action = self.settings_menu.addAction(label)
+            action.setCheckable(True)
+            action.triggered.connect(lambda checked=False, value=key: self._select_mode_from_menu(value))
+            mode_group.addAction(action)
+            self._mode_actions[key] = action
+
+        self.settings_menu.addSeparator()
+        self.settings_menu.addSection("Vision")
+        vision_group = QActionGroup(self)
+        vision_group.setExclusive(True)
+        vision_entries = [
+            ("ROBO", "Robo"),
+            ("OCR", "OCR"),
+        ]
+        for key, label in vision_entries:
+            action = self.settings_menu.addAction(label)
+            action.setCheckable(True)
+            action.triggered.connect(lambda checked=False, value=key: self._select_vision_from_menu(value))
+            vision_group.addAction(action)
+            self._vision_actions[key] = action
+
+        self.settings_menu.addSeparator()
+        signout_action = self.settings_menu.addAction("Sign Out")
+        signout_action.triggered.connect(self.logout_btn.click)
+        self._sync_settings_menu()
+
+    def _show_settings_menu(self):
+        self._sync_settings_menu()
+        anchor = self.settings_btn.mapToGlobal(self.settings_btn.rect().bottomLeft())
+        self.settings_menu.exec(anchor)
+
+    def _sync_settings_menu(self):
+        mode_key = self.mode_combo.currentText().strip().upper()
+        for key, action in self._mode_actions.items():
+            action.setChecked(key == mode_key)
+
+        vision_key = self.vision_combo.currentText().strip().upper()
+        for key, action in self._vision_actions.items():
+            action.setChecked(key == vision_key)
+
+    def _select_mode_from_menu(self, mode_key: str):
+        target = (mode_key or "").strip().upper()
+        index_map = {"GUIDANCE": 0, "SAFE": 1, "AUTO": 2}
+        if target not in index_map:
+            return
+        self.mode_combo.setCurrentIndex(index_map[target])
+        self._sync_settings_menu()
+
+    def _select_vision_from_menu(self, vision_key: str):
+        target = (vision_key or "").strip().upper()
+        index_map = {"ROBO": 0, "OCR": 1}
+        if target not in index_map:
+            return
+        self.vision_combo.setCurrentIndex(index_map[target])
+        self._sync_settings_menu()
 
     def setup_ui(self):
         layout = QVBoxLayout()
@@ -285,12 +435,6 @@ class ChatWidget(QWidget):
         ep = QVBoxLayout(self.extended_panel)
         ep.setContentsMargins(10, 10, 10, 10)
         ep.setSpacing(8)
-
-        self.settings_row = QFrame()
-        self.settings_row.setObjectName("settingsRow")
-        sr = QHBoxLayout(self.settings_row)
-        sr.setContentsMargins(0, 0, 0, 0)
-        sr.setSpacing(8)
 
         self.mode_combo = QComboBox()
         self.mode_combo.addItems(["GUIDANCE", "SAFE", "AUTO"])
@@ -305,32 +449,28 @@ class ChatWidget(QWidget):
         self.vision_combo.setItemData(0, "Robotics vision (Gemini Robotics-ER).", Qt.ItemDataRole.ToolTipRole)
         self.vision_combo.setItemData(1, "Local OCR + CV (EasyOCR + OpenCV).", Qt.ItemDataRole.ToolTipRole)
 
-        self.workspace_badge = QLabel("USER")
+        self.workspace_badge = QPushButton("USER")
         self.workspace_badge.setObjectName("workspaceBadge")
         self.workspace_badge.setToolTip("Current workspace")
+        self.workspace_badge.setCursor(Qt.CursorShape.ArrowCursor)
+        self.workspace_badge.setFixedHeight(22)
 
         self.live_btn = QPushButton("LIVE")
         self.live_btn.setObjectName("liveToggleBtn")
         self.live_btn.setCheckable(True)
         self.live_btn.setToolTip("Enable Gemini Live mode")
+        self.live_btn.setFixedHeight(32)
+        self.live_btn.setMinimumWidth(88)
 
         self.live_state_badge = QLabel("DISCONNECTED")
         self.live_state_badge.setObjectName("liveStateBadge")
         self.live_state_badge.setToolTip("Gemini Live session state")
+        self.live_state_badge.hide()
 
         self.logout_btn = QPushButton("Sign Out")
         self.logout_btn.setObjectName("logoutLink")
         self.logout_btn.setCursor(Qt.PointingHandCursor)
         self.logout_btn.setToolTip("Sign out and switch accounts")
-
-        sr.addWidget(self.mode_combo)
-        sr.addWidget(self.vision_combo)
-        sr.addWidget(self.workspace_badge)
-        sr.addWidget(self.live_btn)
-        sr.addWidget(self.live_state_badge)
-        sr.addStretch()
-        sr.addWidget(self.logout_btn)
-        ep.addWidget(self.settings_row)
 
         self.process_panel = QFrame()
         self.process_panel.setObjectName("processPanel")
@@ -453,11 +593,10 @@ class ChatWidget(QWidget):
         self.expand_btn.setFixedHeight(32)
         self.expand_btn.setToolTip("Show process details")
 
-        self.agent_view_btn = QPushButton("Agent View")
-        self.agent_view_btn.setObjectName("agentViewBtn")
-        self.agent_view_btn.setFixedHeight(32)
-        self.agent_view_btn.setToolTip("Agent view is available only on agent workspace")
-        self.agent_view_btn.setEnabled(False)
+        self.settings_btn = QPushButton("Settings")
+        self.settings_btn.setObjectName("settingsBtn")
+        self.settings_btn.setFixedHeight(32)
+        self.settings_btn.setToolTip("Mode, vision, and account settings")
 
         self.minimize_btn = QPushButton("Min")
         self.minimize_btn.setObjectName("minimizeBtn")
@@ -470,8 +609,10 @@ class ChatWidget(QWidget):
 
         h.addWidget(self.logo)
         h.addWidget(self.input_shell, 1)
+        h.addWidget(self.workspace_badge)
+        h.addWidget(self.live_btn)
+        h.addWidget(self.settings_btn)
         h.addWidget(self.expand_btn)
-        h.addWidget(self.agent_view_btn)
         h.addWidget(self.minimize_btn)
         h.addWidget(self.close_btn)
 
@@ -518,7 +659,7 @@ class ChatWidget(QWidget):
             }
             QPushButton#sendBtn:hover { background: #e2e8f0; border-color: #bcc7d6; }
             AnimatedMicButton#micBtn { background: transparent; border: none; }
-            QPushButton#expandBtn, QPushButton#agentViewBtn, QPushButton#minimizeBtn, QPushButton#closeBtn {
+            QPushButton#expandBtn, QPushButton#settingsBtn, QPushButton#minimizeBtn, QPushButton#closeBtn {
                 background: #ffffff;
                 border: 1px solid #d2dae5;
                 border-radius: 10px;
@@ -526,14 +667,9 @@ class ChatWidget(QWidget):
                 font: 600 12px 'Segoe UI', sans-serif;
                 padding: 0 10px;
             }
-            QPushButton#expandBtn:hover, QPushButton#agentViewBtn:hover, QPushButton#minimizeBtn:hover {
+            QPushButton#expandBtn:hover, QPushButton#settingsBtn:hover, QPushButton#minimizeBtn:hover {
                 background: #f1f5f9;
                 border-color: #bfcbdc;
-            }
-            QPushButton#agentViewBtn:disabled {
-                color: #9ca3af;
-                background: #f4f6f8;
-                border-color: #e5e7eb;
             }
             QPushButton#closeBtn:hover {
                 background: #fee2e2;
@@ -544,12 +680,6 @@ class ChatWidget(QWidget):
                 background: #f8fafc;
                 border: 1px solid #d3dce8;
                 border-radius: 16px;
-            }
-            QFrame#settingsRow {
-                background: #ffffff;
-                border: 1px solid #d8e0ea;
-                border-radius: 10px;
-                padding: 6px;
             }
             QComboBox#modeCombo, QComboBox#visionCombo {
                 background: #ffffff;
@@ -563,38 +693,67 @@ class ChatWidget(QWidget):
             QComboBox#visionCombo { min-width: 64px; }
             QComboBox#modeCombo::drop-down, QComboBox#visionCombo::drop-down { border: none; width: 14px; }
             QComboBox#modeCombo::down-arrow, QComboBox#visionCombo::down-arrow { image: none; }
-            QLabel#workspaceBadge {
+            QPushButton#workspaceBadge {
                 background: #f3f4f6;
                 color: #334155;
                 border: 1px solid #d5dce7;
-                border-radius: 8px;
-                padding: 2px 8px;
-                font: 700 10px 'Segoe UI', sans-serif;
-                min-width: 52px;
-                qproperty-alignment: 'AlignCenter';
+                border-radius: 7px;
+                padding: 1px 6px;
+                min-width: 42px;
+                font: 700 9px 'Segoe UI', sans-serif;
             }
-            QLabel#workspaceBadge[workspace="user"] {
+            QPushButton#workspaceBadge:hover[clickable="true"] {
+                border-color: #86efac;
+            }
+            QPushButton#workspaceBadge:pressed[clickable="true"] {
+                background: #dcfce7;
+            }
+            QPushButton#workspaceBadge[workspace="user"] {
                 background: #fff7ed;
                 color: #9a3412;
                 border: 1px solid #fed7aa;
             }
-            QLabel#workspaceBadge[workspace="agent"] {
+            QPushButton#workspaceBadge[workspace="agent"] {
                 background: #ecfdf3;
                 color: #166534;
                 border: 1px solid #bbf7d0;
             }
+            QPushButton#workspaceBadge[agentView="shown"] {
+                background: #dcfce7;
+                border-color: #4ade80;
+            }
             QPushButton#liveToggleBtn {
                 background: #ffffff;
                 border: 1px solid #d2dae5;
-                border-radius: 8px;
+                border-radius: 10px;
                 color: #334155;
                 font: 700 11px 'Segoe UI', sans-serif;
-                padding: 4px 10px;
+                padding: 0 12px;
             }
-            QPushButton#liveToggleBtn:checked {
+            QPushButton#liveToggleBtn[state="off"] {
+                background: #ffffff;
+                color: #475569;
+                border-color: #d2dae5;
+            }
+            QPushButton#liveToggleBtn[state="ready"] {
                 background: #ecfeff;
                 color: #0f766e;
                 border-color: #67e8f9;
+            }
+            QPushButton#liveToggleBtn[state="connected"] {
+                background: #ecfdf3;
+                color: #166534;
+                border-color: #86efac;
+            }
+            QPushButton#liveToggleBtn[state="connecting"], QPushButton#liveToggleBtn[state="thinking"], QPushButton#liveToggleBtn[state="waiting"] {
+                background: #eff6ff;
+                color: #1d4ed8;
+                border-color: #93c5fd;
+            }
+            QPushButton#liveToggleBtn[state="acting"], QPushButton#liveToggleBtn[state="interrupted"] {
+                background: #fff7ed;
+                color: #c2410c;
+                border-color: #fdba74;
             }
             QPushButton#liveToggleBtn:disabled {
                 color: #9ca3af;
@@ -1186,33 +1345,28 @@ class ChatWidget(QWidget):
         max_width = int(viewport_width * 0.7)
         side_margin = max(10, viewport_width - max_width)
 
-        # Defaults
         alignment = Qt.AlignmentFlag.AlignLeft
-        bubble_bg = QColor("#0c1f2f")
-        text_color = QColor("#e6f3ff")
+        bubble_bg = QColor("#00000000")
+        text_color = QColor("#2563eb")
         font_weight = -1
         italic = False
 
         if kind_key == "user":
             alignment = Qt.AlignmentFlag.AlignRight
-            bubble_bg = QColor("#0f2f43")
+            text_color = QColor("#1d4ed8")
         elif kind_key == "assistant":
             alignment = Qt.AlignmentFlag.AlignLeft
-            bubble_bg = QColor("#0b1b27")
-            text_color = QColor("#e6f3ff")
+            text_color = QColor("#2563eb")
         elif kind_key == "system":
             alignment = Qt.AlignmentFlag.AlignLeft
-            bubble_bg = QColor("#0b1b27")
-            text_color = QColor("#cfe9ff")
+            text_color = QColor("#3b82f6")
             italic = True
         elif kind_key == "output":
             alignment = Qt.AlignmentFlag.AlignLeft
-            bubble_bg = QColor("#071724")
-            text_color = QColor("#cfe9ff")
+            text_color = QColor("#1d4ed8")
         elif kind_key == "error":
             alignment = Qt.AlignmentFlag.AlignLeft
-            bubble_bg = QColor("#2a0f17")
-            text_color = QColor("#ffd7e0")
+            text_color = QColor("#dc2626")
             font_weight = 75  # QFont.Bold
         elif kind_key == "section":
             alignment = Qt.AlignmentFlag.AlignCenter
@@ -1241,8 +1395,8 @@ class ChatWidget(QWidget):
             char_format.setFontItalic(True)
 
         if completed and kind_key == "assistant":
-            text_color = QColor("#9fb9cc")
-            bubble_bg = QColor("#091521")
+            text_color = QColor("#60a5fa")
+            bubble_bg = QColor("#00000000")
             char_format.setForeground(text_color)
             char_format.setBackground(bubble_bg)
             display_text = f"[OK] {text}"
@@ -1284,8 +1438,8 @@ class ChatWidget(QWidget):
             body_block.setRightMargin(0)
 
             body_char = QTextCharFormat()
-            body_char.setForeground(QColor("#bfe6ff"))
-            body_char.setBackground(QColor("#071724"))
+            body_char.setForeground(QColor("#2563eb"))
+            body_char.setBackground(QColor("#00000000"))
             body_char.setFontFamily("Consolas")
             cursor.insertBlock(body_block)
 
@@ -1638,14 +1792,6 @@ class ChatWidget(QWidget):
         if mode_key not in {"bar_only", "extended"}:
             mode_key = "bar_only"
         self.view_mode = mode_key
-        if self.view_mode == "bar_only" and self.audio_service.is_listening:
-            self.audio_service.stop_listening()
-        if self.view_mode == "bar_only" and self._live_enabled and self._live_voice_active:
-            self.live_voice_toggled.emit(False)
-            self._live_voice_active = False
-            self._user_audio_level = 0.0
-            self._refresh_live_controls()
-            self._refresh_mic_visual_state()
         self._apply_view_mode()
 
     def _apply_view_mode(self):
@@ -1658,10 +1804,7 @@ class ChatWidget(QWidget):
         show_agent = bool(expanded and self._agent_view_enabled and self._agent_view_requested)
         self.agent_below_container.setVisible(show_agent)
         self.agent_preview.set_active(show_agent)
-        if self._agent_view_enabled:
-            self.agent_view_btn.setText("Hide Agent" if show_agent else "Agent View")
-        else:
-            self.agent_view_btn.setText("Agent View")
+        self._refresh_workspace_badge(show_agent)
 
         if not expanded:
             self.compact_stop_btn.hide()
